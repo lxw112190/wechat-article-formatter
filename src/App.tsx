@@ -149,7 +149,10 @@ function renderMarkdown(markdown: string, theme: Theme) {
       const level = heading[1].length;
       const content = inlineMarkdown(heading[2], theme);
       if (level === 1) html.push(`<h1 style="margin:0 0 22px;color:${theme.heading};font-size:24px;line-height:1.35;font-weight:800;">${content}</h1>`);
-      else if (level === 2) html.push(`<h2 style="margin:34px 0 16px;padding-left:12px;border-left:4px solid ${theme.accent};color:${theme.heading};font-size:20px;line-height:1.45;font-weight:750;">${content}</h2>`);
+      else if (level === 2) {
+        const topMargin = html.length === 0 ? "0" : "34px";
+        html.push(`<h2 style="margin:${topMargin} 0 16px;padding-left:12px;border-left:4px solid ${theme.accent};color:${theme.heading};font-size:20px;line-height:1.45;font-weight:750;">${content}</h2>`);
+      }
       else html.push(`<h3 style="margin:26px 0 12px;color:${theme.heading};font-size:17px;line-height:1.5;font-weight:700;">${content}</h3>`);
       return;
     }
@@ -176,7 +179,7 @@ function renderMarkdown(markdown: string, theme: Theme) {
 }
 
 function buildCopyHtml(bodyHtml: string) {
-  return `<section style="max-width:677px;margin:0 auto;padding:24px 0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif;">${bodyHtml}</section>`;
+  return `<div style="max-width:677px;margin:0 auto;padding:8px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif;">${bodyHtml}</div>`;
 }
 
 function buildExportHtml(title: string, bodyHtml: string, theme: Theme) {
