@@ -4,6 +4,8 @@
 
 纯前端 `Vite + React + TypeScript` 应用，数据仅存储在浏览器中。
 
+👉 在线体验：https://wechat-article-formatter.lxw112190.workers.dev
+
 ## 功能
 
 - Markdown 编辑、手机预览和富文本正文复制。
