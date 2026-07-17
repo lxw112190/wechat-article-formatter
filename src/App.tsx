@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, CSSProperties } from "react";
+import type { ChangeEvent, ClipboardEvent as ReactClipboardEvent, CSSProperties } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import TurndownService from "turndown";
+import { gfm } from "turndown-plugin-gfm";
 
 type Theme = {
   id: string;
@@ -249,6 +251,123 @@ function getMarkdownFilename(title: string) {
   return `${safeName || "未命名文章"}.md`;
 }
 
+const pasteTurndownService = new TurndownService({
+  headingStyle: "atx",
+  bulletListMarker: "-",
+  codeBlockStyle: "fenced",
+  fence: "```",
+  emDelimiter: "*",
+  strongDelimiter: "**",
+  linkStyle: "inlined",
+});
+pasteTurndownService.use(gfm);
+pasteTurndownService.keep(["details", "summary", "sub", "sup"]);
+
+const listMarkerPattern = /^\s*(?:(\d+|[a-zA-Z]|[ivxlcdmIVXLCDM]+)[.)、]|[•·▪◦‣⁃o])\s*/;
+
+function stripLeadingListMarker(element: HTMLElement) {
+  const nodes: Node[] = [...element.childNodes];
+  while (nodes.length) {
+    const node = nodes.shift();
+    if (!node) continue;
+    if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
+      node.textContent = node.textContent.replace(listMarkerPattern, "");
+      return;
+    }
+    nodes.unshift(...node.childNodes);
+  }
+}
+
+function normalizeOfficeLists(root: HTMLElement) {
+  const parents = [root, ...root.querySelectorAll<HTMLElement>("*")];
+  parents.forEach((parent) => {
+    let activeList: HTMLOListElement | HTMLUListElement | null = null;
+    let activeType = "";
+    [...parent.children].forEach((child) => {
+      if (!(child instanceof HTMLElement)) return;
+      const style = child.getAttribute("style") ?? "";
+      const isOfficeList = /MsoListParagraph/i.test(child.className) || /mso-list/i.test(style);
+      if (!isOfficeList) {
+        activeList = null;
+        activeType = "";
+        return;
+      }
+
+      const ignoredMarkers = [...child.querySelectorAll<HTMLElement>("span")].filter((span) => /mso-list\s*:\s*Ignore/i.test(span.getAttribute("style") ?? ""));
+      const markerText = ignoredMarkers.map((span) => span.textContent ?? "").join("") || child.textContent || "";
+      const marker = markerText.match(listMarkerPattern);
+      const ordered = Boolean(marker?.[1]);
+      const type = ordered ? "OL" : "UL";
+      if (!activeList || activeType !== type) {
+        activeList = document.createElement(ordered ? "ol" : "ul");
+        activeType = type;
+        if (ordered && marker?.[1] && /^\d+$/.test(marker[1])) (activeList as HTMLOListElement).start = Number(marker[1]);
+        parent.insertBefore(activeList, child);
+      }
+
+      ignoredMarkers.forEach((span) => span.remove());
+      const item = document.createElement("li");
+      while (child.firstChild) item.append(child.firstChild);
+      if (!ignoredMarkers.length) stripLeadingListMarker(item);
+      activeList.append(item);
+      child.remove();
+    });
+  });
+}
+
+function convertPastedHtml(html: string) {
+  const source = /Mso|mso-|urn:schemas-microsoft-com:office|<o:/i.test(html) ? "Word" : "网页";
+  const sanitized = DOMPurify.sanitize(html, { FORBID_TAGS: ["script", "style", "noscript", "iframe", "object", "embed", "form", "button"] });
+  const container = document.createElement("div");
+  container.innerHTML = sanitized;
+
+  container.querySelectorAll<HTMLElement>("[style]").forEach((element) => {
+    const style = (element.getAttribute("style") ?? "").toLowerCase();
+    if (/display\s*:\s*none|visibility\s*:\s*hidden/.test(style)) {
+      element.remove();
+      return;
+    }
+    if (element.tagName !== "SPAN") return;
+    const wrappers: Array<"strong" | "em" | "del"> = [];
+    if (/font-weight\s*:\s*(?:bold|[6-9]00)/.test(style)) wrappers.push("strong");
+    if (/font-style\s*:\s*italic/.test(style)) wrappers.push("em");
+    if (/text-decoration[^;]*line-through/.test(style)) wrappers.push("del");
+    wrappers.forEach((tag) => {
+      const wrapper = document.createElement(tag);
+      while (element.firstChild) wrapper.append(element.firstChild);
+      element.append(wrapper);
+    });
+  });
+
+  normalizeOfficeLists(container);
+
+  let skippedImages = 0;
+  container.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+    const sourceUrl = (image.getAttribute("src") ?? "").trim();
+    if (sourceUrl && !/^(?:file|blob|cid|data):/i.test(sourceUrl)) return;
+    const placeholder = document.createElement("span");
+    placeholder.textContent = `【图片需重新上传${image.alt ? `：${image.alt}` : ""}】`;
+    image.replaceWith(placeholder);
+    skippedImages += 1;
+  });
+
+  container.querySelectorAll<HTMLElement>("*").forEach((element) => {
+    const allowed = new Set<string>();
+    if (element.tagName === "A") ["href", "title"].forEach((name) => allowed.add(name));
+    if (element.tagName === "IMG") ["src", "alt", "title"].forEach((name) => allowed.add(name));
+    if (element.tagName === "TD" || element.tagName === "TH") ["align", "colspan", "rowspan"].forEach((name) => allowed.add(name));
+    if (element.tagName === "OL") allowed.add("start");
+    if (element.tagName === "INPUT") ["type", "checked", "disabled"].forEach((name) => allowed.add(name));
+    if (element.tagName === "PRE" || element.tagName === "CODE") allowed.add("class");
+    if (element.tagName === "DETAILS") allowed.add("open");
+    element.getAttributeNames().forEach((name) => { if (!allowed.has(name)) element.removeAttribute(name); });
+  });
+
+  container.querySelectorAll("span").forEach((span) => span.replaceWith(...span.childNodes));
+  const markdown = pasteTurndownService.turndown(container).replace(/\n{3,}/g, "\n\n").trim();
+  return { markdown, skippedImages, source };
+}
+
 const formatGroups = [
   { label: "文字", actions: [["bold", "加粗"], ["italic", "斜体"], ["strike", "删除线"], ["inlineCode", "行内代码"], ["link", "链接"]] },
   { label: "标题", actions: [["h1", "一级标题"], ["h2", "二级标题"], ["h3", "三级标题"], ["h4", "四级标题"], ["h5", "五级标题"], ["h6", "六级标题"]] },
@@ -262,6 +381,7 @@ export default function App() {
   const markdownFileInputRef = useRef<HTMLInputElement>(null);
   const syncTargetRef = useRef<HTMLElement | null>(null);
   const autoSaveTimerRef = useRef<number | null>(null);
+  const pasteNoticeTimerRef = useRef<number | null>(null);
   const [articles, setArticles] = useState(getSavedArticles);
   const [history, setHistory] = useState<ArticleVersion[]>(getSavedHistory);
   const [activeId, setActiveId] = useState(() => getSavedArticles()[0].id);
@@ -274,6 +394,7 @@ export default function App() {
   const [storageError, setStorageError] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("");
   const [markdownMessage, setMarkdownMessage] = useState("");
+  const [pasteMessage, setPasteMessage] = useState("");
   const [formatOpen, setFormatOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [syncScroll, setSyncScroll] = useState(() => window.localStorage.getItem("wechat-sync-scroll") !== "false");
@@ -340,6 +461,10 @@ export default function App() {
     if (syncScroll) requestAnimationFrame(() => syncScrollPosition(textareaRef.current, previewRef.current));
   }, [syncScroll]);
 
+  useEffect(() => () => {
+    if (pasteNoticeTimerRef.current) window.clearTimeout(pasteNoticeTimerRef.current);
+  }, []);
+
   function syncScrollPosition(source: HTMLElement | null, target: HTMLElement | null) {
     if (!syncScroll || !source || !target || syncTargetRef.current === source) return;
     const sourceRange = source.scrollHeight - source.clientHeight;
@@ -379,6 +504,35 @@ export default function App() {
       textarea.focus();
       textarea.selectionStart = textarea.selectionEnd = start + replacement.length - after.length;
     });
+  }
+
+  function handleEditorPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const html = event.clipboardData.getData("text/html");
+    if (!html.trim()) return;
+    const converted = convertPastedHtml(html);
+    const content = converted.markdown || event.clipboardData.getData("text/plain");
+    if (!content) return;
+
+    event.preventDefault();
+    const textarea = event.currentTarget;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const multiline = content.includes("\n");
+    const leading = multiline && start > 0 && markdown[start - 1] !== "\n" ? "\n\n" : "";
+    const trailing = multiline && end < markdown.length && markdown[end] !== "\n" ? "\n\n" : "";
+    const insertion = `${leading}${content}${trailing}`;
+    setMarkdown(`${markdown.slice(0, start)}${insertion}${markdown.slice(end)}`);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + insertion.length - trailing.length;
+    });
+
+    if (pasteNoticeTimerRef.current) window.clearTimeout(pasteNoticeTimerRef.current);
+    setPasteMessage(`已清理${converted.source}格式并转换为 Markdown${converted.skippedImages ? `；${converted.skippedImages} 张本地图片需重新上传` : ""}`);
+    pasteNoticeTimerRef.current = window.setTimeout(() => {
+      setPasteMessage("");
+      pasteNoticeTimerRef.current = null;
+    }, 3600);
   }
 
   function applyFormat(value: string) {
@@ -621,7 +775,8 @@ export default function App() {
           <button type="button" title="加粗" onClick={() => applyFormat("bold")}>B</button><button type="button" title="引用" onClick={() => applyFormat("quote")}>“</button><button type="button" title="无序列表" onClick={() => applyFormat("list")}>列表</button><button type="button" title="行内代码" onClick={() => applyFormat("inlineCode")}>{"</>"}</button><button type="button" title="代码块" onClick={() => applyFormat("codeBlock")}>{"{ }"}</button>
           <div className="formatPicker"><button className="formatTrigger" type="button" aria-expanded={formatOpen} onClick={() => setFormatOpen((open) => !open)}>格式 <span>⌄</span></button>{formatOpen && <div className="formatMenu" role="menu">{formatGroups.map((group) => <div className="formatGroup" key={group.label}><p>{group.label}</p>{group.actions.map(([id, label]) => <button key={id} type="button" onClick={() => applyFormat(id)}>{label}</button>)}</div>)}</div>}</div>
         </div>
-        <textarea ref={textareaRef} className="markdownInput" value={markdown} onChange={(event) => setMarkdown(event.target.value)} onScroll={(event) => syncScrollPosition(event.currentTarget, previewRef.current)} spellCheck={false} />
+        {pasteMessage && <div className="pasteNotice" role="status">{pasteMessage}</div>}
+        <textarea ref={textareaRef} className="markdownInput" value={markdown} onChange={(event) => setMarkdown(event.target.value)} onPaste={handleEditorPaste} onScroll={(event) => syncScrollPosition(event.currentTarget, previewRef.current)} spellCheck={false} />
         <div className="editorStats"><span>{characterCount} 字</span><span>{headingCount} 个小标题</span><span>{imageCount} 张图片</span></div>
       </section>
 
