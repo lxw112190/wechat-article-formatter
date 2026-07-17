@@ -382,6 +382,7 @@ export default function App() {
   const syncTargetRef = useRef<HTMLElement | null>(null);
   const autoSaveTimerRef = useRef<number | null>(null);
   const pasteNoticeTimerRef = useRef<number | null>(null);
+  const formatRef = useRef<HTMLDivElement>(null);
   const [articles, setArticles] = useState(getSavedArticles);
   const [history, setHistory] = useState<ArticleVersion[]>(getSavedHistory);
   const [activeId, setActiveId] = useState(() => getSavedArticles()[0].id);
@@ -464,6 +465,19 @@ export default function App() {
   useEffect(() => () => {
     if (pasteNoticeTimerRef.current) window.clearTimeout(pasteNoticeTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!formatOpen) return;
+    const close = (event: MouseEvent | TouchEvent) => {
+      if (formatRef.current && !formatRef.current.contains(event.target as Node)) setFormatOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+    };
+  }, [formatOpen]);
 
   function syncScrollPosition(source: HTMLElement | null, target: HTMLElement | null) {
     if (!syncScroll || !source || !target || syncTargetRef.current === source) return;
@@ -773,7 +787,7 @@ export default function App() {
         <div className="titleFields"><label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="填写文章标题" /></label></div>
         <div className="toolbar" aria-label="排版工具">
           <button type="button" title="加粗" onClick={() => applyFormat("bold")}>B</button><button type="button" title="引用" onClick={() => applyFormat("quote")}>“</button><button type="button" title="无序列表" onClick={() => applyFormat("list")}>列表</button><button type="button" title="行内代码" onClick={() => applyFormat("inlineCode")}>{"</>"}</button><button type="button" title="代码块" onClick={() => applyFormat("codeBlock")}>{"{ }"}</button>
-          <div className="formatPicker"><button className="formatTrigger" type="button" aria-expanded={formatOpen} onClick={() => setFormatOpen((open) => !open)}>格式 <span>⌄</span></button>{formatOpen && <div className="formatMenu" role="menu">{formatGroups.map((group) => <div className="formatGroup" key={group.label}><p>{group.label}</p>{group.actions.map(([id, label]) => <button key={id} type="button" onClick={() => applyFormat(id)}>{label}</button>)}</div>)}</div>}</div>
+          <div className="formatPicker" ref={formatRef}><button className="formatTrigger" type="button" aria-expanded={formatOpen} onClick={() => setFormatOpen((open) => !open)}>格式 <span>⌄</span></button>{formatOpen && <div className="formatMenu" role="menu">{formatGroups.map((group) => <div className="formatGroup" key={group.label}><p>{group.label}</p>{group.actions.map(([id, label]) => <button key={id} type="button" onClick={() => applyFormat(id)}>{label}</button>)}</div>)}</div>}</div>
         </div>
         {pasteMessage && <div className="pasteNotice" role="status">{pasteMessage}</div>}
         <textarea ref={textareaRef} className="markdownInput" value={markdown} onChange={(event) => setMarkdown(event.target.value)} onPaste={handleEditorPaste} onScroll={(event) => syncScrollPosition(event.currentTarget, previewRef.current)} spellCheck={false} />
