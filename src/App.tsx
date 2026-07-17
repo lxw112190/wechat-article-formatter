@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, CSSProperties } from "react";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 
 type Theme = {
   id: string;
@@ -18,6 +20,14 @@ type Article = {
   title: string;
   markdown: string;
   updatedAt: string;
+};
+
+type ArticleVersion = {
+  id: string;
+  articleId: string;
+  title: string;
+  markdown: string;
+  savedAt: string;
 };
 
 const themes: Theme[] = [
@@ -77,6 +87,8 @@ const initialArticles: Article[] = [
 ];
 
 const articleStorageKey = "wechat-publisher-articles";
+const historyStorageKey = "wechat-publisher-history";
+const maxVersionsPerArticle = 30;
 
 function getSavedArticles() {
   try {
@@ -92,90 +104,100 @@ function escapeHtml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-function stripMarkdown(value: string) {
-  return value.replace(/```[\s\S]*?```/g, " ").replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\[[^\]]+\]\([^)]*\)/g, (match) => match.slice(1).split("](")[0]).replace(/[#>*_`~\-\d.]/g, " ").replace(/\s+/g, " ").trim();
+function getSavedHistory() {
+  try {
+    const saved = window.localStorage.getItem(historyStorageKey);
+    const parsed = saved ? JSON.parse(saved) : null;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is ArticleVersion => item && typeof item === "object" && typeof item.id === "string" && typeof item.articleId === "string" && typeof item.title === "string" && typeof item.markdown === "string" && typeof item.savedAt === "string");
+  } catch {
+    return [];
+  }
 }
 
-function inlineMarkdown(value: string, theme: Theme) {
-  let text = escapeHtml(value);
-  text = text.replace(/`([^`]+)`/g, `<code style="padding:2px 6px;border-radius:4px;background:${theme.codeBg};color:${theme.heading};font-size:90%;">$1</code>`);
-  text = text.replace(/\*\*([^*]+)\*\*/g, `<strong style="color:${theme.heading};font-weight:700;">$1</strong>`);
-  text = text.replace(/\*([^*]+)\*/g, `<em style="color:${theme.muted};font-style:italic;">$1</em>`);
-  return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `<a href="$2" style="color:${theme.accent};text-decoration:none;border-bottom:1px solid ${theme.border};">$1</a>`);
+function stripMarkdown(value: string) {
+  const template = document.createElement("template");
+  template.innerHTML = DOMPurify.sanitize(marked.parse(value, { async: false, gfm: true }));
+  return (template.content.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
 function renderMarkdown(markdown: string, theme: Theme) {
-  const html: string[] = [];
-  let paragraph: string[] = [];
-  let listItems: string[] = [];
-  let ordered = false;
-  let inCode = false;
-  let codeLines: string[] = [];
-  const paragraphStyle = `margin:0 0 18px;color:${theme.text};font-size:16px;line-height:1.85;letter-spacing:0;`;
-  const flushParagraph = () => {
-    if (paragraph.length) html.push(`<p style="${paragraphStyle}">${paragraph.map((line) => inlineMarkdown(line, theme)).join("<br/>")}</p>`);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (listItems.length) {
-      const tag = ordered ? "ol" : "ul";
-      html.push(`<${tag} style="margin:0 0 20px;padding-left:24px;color:${theme.text};font-size:16px;line-height:1.85;">${listItems.join("")}</${tag}>`);
-    }
-    listItems = [];
-  };
-  const flushCode = () => {
-    html.push(`<pre style="margin:8px 0 22px;padding:16px;border-radius:6px;background:${theme.codeBg};border:1px solid ${theme.border};overflow:auto;color:${theme.heading};font-size:14px;line-height:1.7;"><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
-    codeLines = [];
-  };
+  const rawHtml = marked.parse(markdown, { async: false, gfm: true, breaks: false });
+  const template = document.createElement("template");
+  template.innerHTML = DOMPurify.sanitize(rawHtml, { FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"] });
 
-  markdown.split(/\r?\n/).forEach((rawLine) => {
-    const line = rawLine.trimEnd();
-    if (line.startsWith("```")) {
-      flushParagraph(); flushList();
-      if (inCode) { flushCode(); inCode = false; } else inCode = true;
-      return;
-    }
-    if (inCode) { codeLines.push(rawLine); return; }
-    if (!line.trim()) { flushParagraph(); flushList(); return; }
-    const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if (image) {
-      flushParagraph(); flushList();
-      html.push(`<figure style="margin:8px 0 24px;"><img src="${escapeHtml(image[2])}" alt="${escapeHtml(image[1])}" style="display:block;width:100%;border-radius:6px;border:1px solid ${theme.border};"/><figcaption style="margin-top:8px;text-align:center;color:${theme.muted};font-size:13px;">${escapeHtml(image[1])}</figcaption></figure>`);
-      return;
-    }
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushParagraph(); flushList();
-      const level = heading[1].length;
-      const content = inlineMarkdown(heading[2], theme);
-      if (level === 1) html.push(`<h1 style="margin:0 0 22px;color:${theme.heading};font-size:24px;line-height:1.35;font-weight:800;">${content}</h1>`);
-      else if (level === 2) {
-        const topMargin = html.length === 0 ? "0" : "34px";
-        html.push(`<h2 style="margin:${topMargin} 0 16px;padding-left:12px;border-left:4px solid ${theme.accent};color:${theme.heading};font-size:20px;line-height:1.45;font-weight:750;">${content}</h2>`);
-      }
-      else html.push(`<h3 style="margin:26px 0 12px;color:${theme.heading};font-size:17px;line-height:1.5;font-weight:700;">${content}</h3>`);
-      return;
-    }
-    if (line.startsWith(">")) {
-      flushParagraph(); flushList();
-      html.push(`<blockquote style="margin:8px 0 22px;padding:14px 16px;border-left:4px solid ${theme.accent};background:${theme.accentSoft};color:${theme.heading};font-size:15px;line-height:1.8;">${inlineMarkdown(line.replace(/^>\s?/, ""), theme)}</blockquote>`);
-      return;
-    }
-    const unordered = line.match(/^[-*]\s+(.+)$/);
-    const orderedItem = line.match(/^\d+\.\s+(.+)$/);
-    if (unordered || orderedItem) {
-      flushParagraph();
-      const nextOrdered = Boolean(orderedItem);
-      if (listItems.length && ordered !== nextOrdered) flushList();
-      ordered = nextOrdered;
-      listItems.push(`<li style="margin:4px 0;">${inlineMarkdown(unordered?.[1] ?? orderedItem?.[1] ?? "", theme)}</li>`);
-      return;
-    }
-    paragraph.push(line);
+  template.content.querySelectorAll<HTMLElement>("[style]").forEach((element) => element.removeAttribute("style"));
+  template.content.querySelectorAll<HTMLElement>("p").forEach((element) => element.setAttribute("style", `margin:0 0 18px;color:${theme.text};font-size:16px;line-height:1.85;letter-spacing:0;word-break:break-word;`));
+
+  const headingStyles: Record<string, string> = {
+    H1: `margin:0 0 22px;color:${theme.heading};font-size:24px;line-height:1.35;font-weight:800;`,
+    H2: `margin:34px 0 16px;padding-left:12px;border-left:4px solid ${theme.accent};color:${theme.heading};font-size:20px;line-height:1.45;font-weight:750;`,
+    H3: `margin:26px 0 12px;color:${theme.heading};font-size:17px;line-height:1.5;font-weight:700;`,
+    H4: `margin:22px 0 10px;color:${theme.heading};font-size:16px;line-height:1.55;font-weight:700;`,
+    H5: `margin:20px 0 8px;color:${theme.heading};font-size:15px;line-height:1.6;font-weight:700;`,
+    H6: `margin:18px 0 8px;color:${theme.muted};font-size:14px;line-height:1.6;font-weight:700;`,
+  };
+  template.content.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6").forEach((element) => element.setAttribute("style", headingStyles[element.tagName]));
+  const firstHeading = template.content.querySelector<HTMLElement>("h2");
+  if (firstHeading && !firstHeading.previousElementSibling) firstHeading.style.marginTop = "0";
+
+  template.content.querySelectorAll<HTMLElement>("strong").forEach((element) => element.setAttribute("style", `color:${theme.heading};font-weight:700;`));
+  template.content.querySelectorAll<HTMLElement>("em").forEach((element) => element.setAttribute("style", `color:${theme.muted};font-style:italic;`));
+  template.content.querySelectorAll<HTMLElement>("del").forEach((element) => element.setAttribute("style", `color:${theme.muted};text-decoration:line-through;text-decoration-thickness:1.5px;`));
+  template.content.querySelectorAll<HTMLElement>("a").forEach((element) => {
+    element.setAttribute("style", `color:${theme.accent};text-decoration:none;border-bottom:1px solid ${theme.border};word-break:break-all;`);
+    element.setAttribute("rel", "noopener noreferrer");
   });
-  if (inCode) flushCode();
-  flushParagraph(); flushList();
-  return html.join("");
+  template.content.querySelectorAll<HTMLElement>("code").forEach((element) => element.setAttribute("style", `padding:2px 6px;border-radius:4px;background:${theme.codeBg};color:${theme.heading};font-family:SFMono-Regular,Consolas,Liberation Mono,Courier New,monospace;font-size:90%;word-break:break-word;`));
+  template.content.querySelectorAll<HTMLElement>("pre").forEach((element) => {
+    element.setAttribute("style", `margin:8px 0 22px;padding:16px;border-radius:6px;background:${theme.codeBg};border:1px solid ${theme.border};overflow-x:auto;color:${theme.heading};font-size:14px;line-height:1.7;white-space:pre;`);
+    element.querySelector<HTMLElement>("code")?.setAttribute("style", "padding:0;border-radius:0;background:transparent;color:inherit;font:inherit;white-space:pre;");
+  });
+  template.content.querySelectorAll<HTMLElement>("blockquote").forEach((element) => element.setAttribute("style", `margin:8px 0 22px;padding:14px 16px;border-left:4px solid ${theme.accent};background:${theme.accentSoft};color:${theme.heading};font-size:15px;line-height:1.8;`));
+  template.content.querySelectorAll<HTMLElement>("blockquote > p:last-child").forEach((element) => element.style.marginBottom = "0");
+  template.content.querySelectorAll<HTMLElement>("ul,ol").forEach((element) => element.setAttribute("style", `margin:0 0 20px;padding-left:24px;color:${theme.text};font-size:16px;line-height:1.85;`));
+  template.content.querySelectorAll<HTMLElement>("li").forEach((element) => element.setAttribute("style", "margin:4px 0;padding-left:2px;"));
+  template.content.querySelectorAll<HTMLElement>("li > p").forEach((element) => element.setAttribute("style", `margin:4px 0;color:${theme.text};font-size:16px;line-height:1.85;`));
+  template.content.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((element) => {
+    element.disabled = true;
+    element.setAttribute("style", `width:16px;height:16px;margin:0 8px 0 0;vertical-align:-2px;accent-color:${theme.accent};`);
+  });
+  template.content.querySelectorAll<HTMLElement>("hr").forEach((element) => element.setAttribute("style", `height:1px;margin:30px 0;border:0;background:${theme.border};`));
+
+  template.content.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+    image.setAttribute("style", `display:block;max-width:100%;height:auto;margin:0 auto;border-radius:6px;border:1px solid ${theme.border};`);
+    const parent = image.parentElement;
+    if (parent?.tagName === "P" && parent.children.length === 1 && !(parent.textContent ?? "").trim()) {
+      const figure = document.createElement("figure");
+      figure.setAttribute("style", "margin:8px 0 24px;");
+      parent.replaceWith(figure);
+      figure.append(image);
+      if (image.alt) {
+        const caption = document.createElement("figcaption");
+        caption.textContent = image.alt;
+        caption.setAttribute("style", `margin-top:8px;text-align:center;color:${theme.muted};font-size:13px;line-height:1.6;`);
+        figure.append(caption);
+      }
+    }
+  });
+
+  template.content.querySelectorAll<HTMLTableElement>("table").forEach((table) => {
+    table.setAttribute("style", "width:100%;min-width:480px;border-collapse:collapse;border-spacing:0;table-layout:auto;");
+    table.querySelectorAll<HTMLTableCellElement>("th,td").forEach((cell) => {
+      const alignment = cell.getAttribute("align") || "left";
+      const header = cell.tagName === "TH";
+      cell.setAttribute("style", `padding:10px 12px;border:1px solid ${theme.border};background:${header ? theme.accentSoft : "#ffffff"};color:${header ? theme.heading : theme.text};font-size:14px;line-height:${header ? "1.6" : "1.65"};font-weight:${header ? "700" : "400"};text-align:${alignment};vertical-align:${header ? "middle" : "top"};word-break:break-word;`);
+    });
+    table.querySelectorAll<HTMLTableRowElement>("tbody tr").forEach((row, index) => {
+      if (index % 2 === 1) row.querySelectorAll<HTMLTableCellElement>("td").forEach((cell) => { cell.style.background = theme.codeBg; });
+    });
+    const wrapper = document.createElement("section");
+    wrapper.setAttribute("style", "margin:8px 0 24px;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;");
+    table.replaceWith(wrapper);
+    wrapper.append(table);
+  });
+
+  return template.innerHTML;
 }
 
 function buildCopyHtml(bodyHtml: string) {
@@ -210,19 +232,51 @@ function formatUpdatedAt(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(timestamp);
 }
 
+function formatVersionTime(value: string) {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value;
+  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(timestamp);
+}
+
+function getMarkdownTitle(markdown: string, filename: string) {
+  const heading = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  const fileTitle = filename.replace(/\.(md|markdown)$/i, "").trim();
+  return heading || fileTitle || "导入的文章";
+}
+
+function getMarkdownFilename(title: string) {
+  const safeName = title.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/[. ]+$/g, "").slice(0, 80);
+  return `${safeName || "未命名文章"}.md`;
+}
+
+const formatGroups = [
+  { label: "文字", actions: [["bold", "加粗"], ["italic", "斜体"], ["strike", "删除线"], ["inlineCode", "行内代码"], ["link", "链接"]] },
+  { label: "标题", actions: [["h1", "一级标题"], ["h2", "二级标题"], ["h3", "三级标题"], ["h4", "四级标题"], ["h5", "五级标题"], ["h6", "六级标题"]] },
+  { label: "内容块", actions: [["quote", "引用"], ["list", "无序列表"], ["ordered", "有序列表"], ["task", "任务列表"], ["codeBlock", "代码块"], ["table", "表格"], ["image", "图片"], ["hr", "分隔线"], ["hardBreak", "强制换行"], ["htmlBlock", "HTML 块"]] },
+] as const;
+
 export default function App() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const markdownFileInputRef = useRef<HTMLInputElement>(null);
+  const syncTargetRef = useRef<HTMLElement | null>(null);
+  const autoSaveTimerRef = useRef<number | null>(null);
   const [articles, setArticles] = useState(getSavedArticles);
+  const [history, setHistory] = useState<ArticleVersion[]>(getSavedHistory);
   const [activeId, setActiveId] = useState(() => getSavedArticles()[0].id);
   const [markdown, setMarkdown] = useState(() => getSavedArticles()[0].markdown);
   const [title, setTitle] = useState(() => getSavedArticles()[0].title);
   const [themeId, setThemeId] = useState(themes[0].id);
   const [copied, setCopied] = useState("复制正文");
   const [fieldCopied, setFieldCopied] = useState<string | null>(null);
-  const [saved, setSaved] = useState("保存草稿");
+  const [saved, setSaved] = useState("立即保存");
+  const [storageError, setStorageError] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("");
+  const [markdownMessage, setMarkdownMessage] = useState("");
   const [formatOpen, setFormatOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [syncScroll, setSyncScroll] = useState(() => window.localStorage.getItem("wechat-sync-scroll") !== "false");
 
   const theme = themes.find((item) => item.id === themeId) ?? themes[0];
   const bodyHtml = useMemo(() => renderMarkdown(markdown, theme), [markdown, theme]);
@@ -231,13 +285,72 @@ export default function App() {
   const copyPlainText = useMemo(() => articlePlainText, [articlePlainText]);
   const characterCount = articlePlainText.replace(/\s/g, "").length;
   const imageCount = (markdown.match(/!\[[^\]]*\]\([^)]*\)/g) ?? []).length;
-  const headingCount = (markdown.match(/^#{2,3}\s+/gm) ?? []).length;
+  const headingCount = (markdown.match(/^#{1,6}\s+/gm) ?? []).length;
   const readMinutes = Math.max(1, Math.ceil(characterCount / 450));
+  const activeArticle = articles.find((article) => article.id === activeId);
+  const isDirty = Boolean(activeArticle && (activeArticle.title !== title || activeArticle.markdown !== markdown));
+  const hasUnsavedChanges = isDirty || storageError;
+  const currentHistory = history.filter((version) => version.articleId === activeId).sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt));
   const themeVars = { "--article-accent": theme.accent, "--article-soft": theme.accentSoft, "--article-heading": theme.heading } as CSSProperties;
 
   useEffect(() => {
-    window.localStorage.setItem(articleStorageKey, JSON.stringify(articles));
+    try {
+      window.localStorage.setItem(articleStorageKey, JSON.stringify(articles));
+      setStorageError(false);
+    } catch {
+      setStorageError(true);
+      setSaved("本地存储空间不足");
+    }
   }, [articles]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(historyStorageKey, JSON.stringify(history));
+    } catch {
+      setSaved("历史记录存储失败");
+    }
+  }, [history]);
+
+  useEffect(() => {
+    if (!activeId || !isDirty) return;
+    setSaved("自动保存中…");
+    if (autoSaveTimerRef.current) window.clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      persistCurrentArticle("自动保存");
+    }, 900);
+    return () => {
+      if (autoSaveTimerRef.current) window.clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    };
+  }, [activeId, title, markdown]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    window.localStorage.setItem("wechat-sync-scroll", String(syncScroll));
+    if (syncScroll) requestAnimationFrame(() => syncScrollPosition(textareaRef.current, previewRef.current));
+  }, [syncScroll]);
+
+  function syncScrollPosition(source: HTMLElement | null, target: HTMLElement | null) {
+    if (!syncScroll || !source || !target || syncTargetRef.current === source) return;
+    const sourceRange = source.scrollHeight - source.clientHeight;
+    const targetRange = target.scrollHeight - target.clientHeight;
+    const progress = sourceRange > 0 ? source.scrollTop / sourceRange : 0;
+    syncTargetRef.current = target;
+    target.scrollTop = progress * Math.max(0, targetRange);
+    requestAnimationFrame(() => {
+      if (syncTargetRef.current === target) syncTargetRef.current = null;
+    });
+  }
 
   function insertMarkdown(before: string, after = "", fallback = "重点内容") {
     const textarea = textareaRef.current;
@@ -253,29 +366,102 @@ export default function App() {
     });
   }
 
+  function insertBlock(content: string) {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = start > 0 && markdown[start - 1] !== "\n" ? "\n\n" : "";
+    const after = end < markdown.length && markdown[end] !== "\n" ? "\n\n" : "";
+    const replacement = `${before}${content}${after}`;
+    setMarkdown(`${markdown.slice(0, start)}${replacement}${markdown.slice(end)}`);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + replacement.length - after.length;
+    });
+  }
+
   function applyFormat(value: string) {
     const actions: Record<string, () => void> = {
-      bold: () => insertMarkdown("**", "**"), italic: () => insertMarkdown("*", "*"), h2: () => insertMarkdown("## ", "", "小标题"), h3: () => insertMarkdown("### ", "", "三级标题"), quote: () => insertMarkdown("> ", "", "引用内容"), list: () => insertMarkdown("- ", "", "列表项"), ordered: () => insertMarkdown("1. ", "", "列表项"), link: () => insertMarkdown("[", "](https://example.com)", "链接文字"), image: () => insertMarkdown("![图片说明](", ")", "图片地址"), inlineCode: () => insertMarkdown("`", "`", "代码"), codeBlock: () => insertMarkdown("```\n", "\n```", "代码块"),
+      bold: () => insertMarkdown("**", "**"),
+      italic: () => insertMarkdown("*", "*"),
+      strike: () => insertMarkdown("~~", "~~"),
+      h1: () => insertMarkdown("# ", "", "一级标题"),
+      h2: () => insertMarkdown("## ", "", "二级标题"),
+      h3: () => insertMarkdown("### ", "", "三级标题"),
+      h4: () => insertMarkdown("#### ", "", "四级标题"),
+      h5: () => insertMarkdown("##### ", "", "五级标题"),
+      h6: () => insertMarkdown("###### ", "", "六级标题"),
+      quote: () => insertMarkdown("> ", "", "引用内容"),
+      list: () => insertMarkdown("- ", "", "列表项"),
+      ordered: () => insertMarkdown("1. ", "", "列表项"),
+      task: () => insertMarkdown("- [ ] ", "", "待办事项"),
+      link: () => insertMarkdown("[", "](https://example.com)", "链接文字"),
+      image: () => insertMarkdown("![图片说明](", ")", "图片地址"),
+      inlineCode: () => insertMarkdown("`", "`", "代码"),
+      codeBlock: () => insertMarkdown("```text\n", "\n```", "代码块"),
+      table: () => insertBlock("| 表头一 | 表头二 | 表头三 |\n| --- | :---: | ---: |\n| 内容 | 居中 | 右对齐 |"),
+      hr: () => insertBlock("---"),
+      hardBreak: () => insertMarkdown("", "  \n", "上一行内容"),
+      htmlBlock: () => insertBlock("<details>\n<summary>展开查看</summary>\n\nHTML 内容\n\n</details>"),
     };
     actions[value]?.();
     setFormatOpen(false);
   }
 
+  function clearAutoSaveTimer() {
+    if (!autoSaveTimerRef.current) return;
+    window.clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = null;
+  }
+
+  function recordVersion(article: Article) {
+    setHistory((items) => {
+      const latest = items.find((version) => version.articleId === article.id);
+      if (latest && latest.title === article.title && latest.markdown === article.markdown) return items;
+      const version: ArticleVersion = { id: crypto.randomUUID(), articleId: article.id, title: article.title, markdown: article.markdown, savedAt: new Date().toISOString() };
+      const articleVersions = [version, ...items.filter((item) => item.articleId === article.id)].slice(0, maxVersionsPerArticle);
+      return [...articleVersions, ...items.filter((item) => item.articleId !== article.id)];
+    });
+  }
+
+  function persistCurrentArticle(source: "手动保存" | "自动保存" = "手动保存") {
+    clearAutoSaveTimer();
+    const current = articles.find((article) => article.id === activeId);
+    if (!current) return;
+    if (current.title === title && current.markdown === markdown) {
+      try {
+        window.localStorage.setItem(articleStorageKey, JSON.stringify(articles));
+        setStorageError(false);
+        setSaved("已保存");
+      } catch {
+        setStorageError(true);
+        setSaved("本地存储空间不足");
+      }
+      return;
+    }
+    recordVersion(current);
+    const updatedAt = new Date().toISOString();
+    setArticles((items) => items.map((item) => item.id === activeId ? { ...item, title: title || "未命名文章", markdown, updatedAt } : item));
+    setSaved(source === "自动保存" ? "已自动保存" : "已保存");
+    window.setTimeout(() => setSaved("立即保存"), 1600);
+  }
+
   function selectArticle(article: Article) {
-    setActiveId(article.id); setTitle(article.title); setMarkdown(article.markdown); setSaved("保存草稿");
+    if (article.id === activeId) return;
+    if (isDirty) persistCurrentArticle("自动保存");
+    setActiveId(article.id); setTitle(article.title); setMarkdown(article.markdown); setSaved("立即保存");
   }
 
   function saveArticle() {
-    if (!activeId) return;
-    setArticles((items) => items.map((item) => item.id === activeId ? { ...item, title: title || "未命名文章", markdown, updatedAt: new Date().toISOString() } : item));
-    setSaved("已保存");
-    window.setTimeout(() => setSaved("保存草稿"), 1400);
+    persistCurrentArticle("手动保存");
   }
 
   function createArticle() {
+    if (isDirty) persistCurrentArticle("自动保存");
     const article: Article = { id: crypto.randomUUID(), title: "未命名文章", markdown: "# 未命名文章\n\n开始写作...", updatedAt: new Date().toISOString() };
     setArticles((items) => [article, ...items]);
-    selectArticle(article);
+    setActiveId(article.id); setTitle(article.title); setMarkdown(article.markdown); setSaved("立即保存");
   }
 
   function deleteArticle() {
@@ -283,12 +469,68 @@ export default function App() {
     if (!current || !window.confirm(`确定删除“${current.title || "未命名文章"}”吗？`)) return;
     const remaining = articles.filter((article) => article.id !== activeId);
     setArticles(remaining);
-    if (remaining.length) selectArticle(remaining[0]);
+    setHistory((items) => items.filter((version) => version.articleId !== activeId));
+    if (remaining.length) {
+      setActiveId(remaining[0].id);
+      setTitle(remaining[0].title);
+      setMarkdown(remaining[0].markdown);
+      setSaved("立即保存");
+    }
     else {
       setActiveId("");
       setTitle("");
       setMarkdown("");
     }
+  }
+
+  function restoreVersion(version: ArticleVersion) {
+    if (!window.confirm(`确定恢复 ${formatVersionTime(version.savedAt)} 的版本吗？当前内容会先保存到历史记录。`)) return;
+    if (activeId) recordVersion({ id: activeId, title: title || "未命名文章", markdown, updatedAt: new Date().toISOString() });
+    clearAutoSaveTimer();
+    setTitle(version.title);
+    setMarkdown(version.markdown);
+    setSaved("已恢复，等待保存");
+    setHistoryOpen(false);
+  }
+
+  async function importMarkdown(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setMarkdownMessage("文件超过 5MB");
+      window.setTimeout(() => setMarkdownMessage(""), 1800);
+      return;
+    }
+    try {
+      const content = (await file.text()).replace(/^\uFEFF/, "");
+      if (!content.trim()) throw new Error("empty markdown");
+      if (isDirty) persistCurrentArticle("自动保存");
+      const article: Article = { id: crypto.randomUUID(), title: getMarkdownTitle(content, file.name), markdown: content, updatedAt: new Date().toISOString() };
+      setArticles((items) => [article, ...items]);
+      setActiveId(article.id);
+      setTitle(article.title);
+      setMarkdown(article.markdown);
+      setSaved("已导入并保存");
+      setMarkdownMessage("导入成功");
+    } catch {
+      setMarkdownMessage("导入失败");
+    }
+    window.setTimeout(() => setMarkdownMessage(""), 1800);
+  }
+
+  function exportMarkdown() {
+    if (!activeId) return;
+    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = getMarkdownFilename(title);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setMarkdownMessage("已导出");
+    window.setTimeout(() => setMarkdownMessage(""), 1600);
   }
 
   function exportLibrary() {
@@ -323,8 +565,13 @@ export default function App() {
         });
       if (!imported.length) throw new Error("empty library");
       if (!window.confirm(`将用导入的 ${imported.length} 篇文章替换当前文章库，是否继续？`)) return;
+      clearAutoSaveTimer();
       setArticles(imported);
-      selectArticle(imported[0]);
+      setHistory([]);
+      setActiveId(imported[0].id);
+      setTitle(imported[0].title);
+      setMarkdown(imported[0].markdown);
+      setSaved("已导入并保存");
       setLibraryMessage("已导入");
     } catch {
       setLibraryMessage("导入失败");
@@ -356,8 +603,9 @@ export default function App() {
   return <main className="workspace">
     <header className="topbar">
       <div><p className="eyebrow">WeChat Formatter</p><h1>公众号排版助手</h1></div>
-      <div className="topbarActions"><button className="ghostButton" type="button" onClick={saveArticle}>{saved}</button><button className="ghostButton" type="button" onClick={deleteArticle} disabled={!activeId}>删除文章</button><button className="ghostButton" type="button" onClick={exportLibrary}>{libraryMessage || "导出 JSON"}</button><button className="ghostButton" type="button" onClick={() => fileInputRef.current?.click()}>{libraryMessage || "导入 JSON"}</button><button className="ghostButton" type="button" onClick={exportHtml}>导出 HTML</button><button className="primaryButton" type="button" onClick={copyForWechat}>{copied}</button></div>
+      <div className="topbarActions"><button className="ghostButton" type="button" title={hasUnsavedChanges ? "立即保存当前修改" : "当前内容已保存"} onClick={saveArticle}>{saved}</button><button className="ghostButton" type="button" onClick={() => setHistoryOpen(true)} disabled={!activeId}>历史版本{currentHistory.length ? ` (${currentHistory.length})` : ""}</button><button className="ghostButton" type="button" onClick={() => markdownFileInputRef.current?.click()}>{markdownMessage && markdownMessage !== "已导出" ? markdownMessage : "导入 .md"}</button><button className="ghostButton" type="button" onClick={exportMarkdown} disabled={!activeId}>{markdownMessage === "已导出" ? "已导出" : "导出 .md"}</button><button className="ghostButton" type="button" onClick={deleteArticle} disabled={!activeId}>删除文章</button><button className="ghostButton" type="button" onClick={exportLibrary}>{libraryMessage || "导出 JSON"}</button><button className="ghostButton" type="button" onClick={() => fileInputRef.current?.click()}>{libraryMessage || "导入 JSON"}</button><button className="ghostButton" type="button" onClick={exportHtml}>导出 HTML</button><button className="primaryButton" type="button" onClick={copyForWechat}>{copied}</button></div>
       <input ref={fileInputRef} className="visuallyHidden" type="file" accept="application/json,.json" onChange={importLibrary} />
+      <input ref={markdownFileInputRef} className="visuallyHidden" type="file" accept=".md,.markdown,text/markdown,text/plain" onChange={importMarkdown} />
     </header>
 
     <section className="appGrid">
@@ -367,17 +615,17 @@ export default function App() {
       </aside>
 
       <section className="editorPanel" aria-label="Markdown 编辑器">
-        <div className="panelHead"><div><p className="panelKicker">草稿</p><h2>Markdown 编辑</h2></div><div className="metricPill">{readMinutes} 分钟阅读</div></div>
+        <div className="panelHead"><div><p className="panelKicker">草稿</p><h2>Markdown 编辑</h2></div><div className="panelHeadActions"><span className={`saveState${hasUnsavedChanges ? " dirty" : ""}`}>{storageError ? "⚠ 存储失败" : isDirty ? "● 未保存" : "✓ 已保存"}</span><button className={`syncToggle${syncScroll ? " active" : ""}`} type="button" aria-pressed={syncScroll} title="编辑区与手机预览按阅读进度同步滚动" onClick={() => setSyncScroll((enabled) => !enabled)}>同步滚动 · {syncScroll ? "开" : "关"}</button><div className="metricPill">{readMinutes} 分钟阅读</div></div></div>
         <div className="titleFields"><label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="填写文章标题" /></label></div>
         <div className="toolbar" aria-label="排版工具">
-          <button type="button" title="加粗" onClick={() => insertMarkdown("**", "**")}>B</button><button type="button" title="引用" onClick={() => insertMarkdown("> ", "", "引用内容")}>“</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项")}>列表</button><button type="button" title="行内代码" onClick={() => insertMarkdown("`", "`", "代码")}>{"</>"}</button><button type="button" title="代码块" onClick={() => insertMarkdown("```\n", "\n```", "代码块")}>{"{ }"}</button>
-          <div className="formatPicker"><button className="formatTrigger" type="button" aria-expanded={formatOpen} onClick={() => setFormatOpen((open) => !open)}>格式 <span>⌄</span></button>{formatOpen && <div className="formatMenu" role="menu"><button type="button" onClick={() => applyFormat("bold")}>加粗</button><button type="button" onClick={() => applyFormat("italic")}>斜体</button><button type="button" onClick={() => applyFormat("h2")}>二级标题</button><button type="button" onClick={() => applyFormat("h3")}>三级标题</button><button type="button" onClick={() => applyFormat("quote")}>引用</button><button type="button" onClick={() => applyFormat("list")}>无序列表</button><button type="button" onClick={() => applyFormat("ordered")}>有序列表</button><button type="button" onClick={() => applyFormat("link")}>链接</button><button type="button" onClick={() => applyFormat("image")}>图片</button><button type="button" onClick={() => applyFormat("inlineCode")}>行内代码</button><button type="button" onClick={() => applyFormat("codeBlock")}>代码块</button></div>}</div>
+          <button type="button" title="加粗" onClick={() => applyFormat("bold")}>B</button><button type="button" title="引用" onClick={() => applyFormat("quote")}>“</button><button type="button" title="无序列表" onClick={() => applyFormat("list")}>列表</button><button type="button" title="行内代码" onClick={() => applyFormat("inlineCode")}>{"</>"}</button><button type="button" title="代码块" onClick={() => applyFormat("codeBlock")}>{"{ }"}</button>
+          <div className="formatPicker"><button className="formatTrigger" type="button" aria-expanded={formatOpen} onClick={() => setFormatOpen((open) => !open)}>格式 <span>⌄</span></button>{formatOpen && <div className="formatMenu" role="menu">{formatGroups.map((group) => <div className="formatGroup" key={group.label}><p>{group.label}</p>{group.actions.map(([id, label]) => <button key={id} type="button" onClick={() => applyFormat(id)}>{label}</button>)}</div>)}</div>}</div>
         </div>
-        <textarea ref={textareaRef} className="markdownInput" value={markdown} onChange={(event) => setMarkdown(event.target.value)} spellCheck={false} />
+        <textarea ref={textareaRef} className="markdownInput" value={markdown} onChange={(event) => setMarkdown(event.target.value)} onScroll={(event) => syncScrollPosition(event.currentTarget, previewRef.current)} spellCheck={false} />
         <div className="editorStats"><span>{characterCount} 字</span><span>{headingCount} 个小标题</span><span>{imageCount} 张图片</span></div>
       </section>
 
-      <section className="previewPanel" aria-label="公众号预览"><div className="phoneShell"><div className="phoneTop"><span>公众号</span><span>预览</span></div><article className="wechatArticle" style={themeVars}><header className="articleHeader"><h2>{title || "未命名文章"}</h2><p>草稿</p></header><div className="articleBody" dangerouslySetInnerHTML={{ __html: bodyHtml }} /></article></div></section>
+      <section className="previewPanel" aria-label="公众号预览"><div className="phoneShell"><div className="phoneTop"><span>公众号</span><span>{syncScroll ? "同步预览" : "预览"}</span></div><article ref={previewRef} className="wechatArticle" style={themeVars} onScroll={(event) => syncScrollPosition(event.currentTarget, textareaRef.current)}><header className="articleHeader"><h2>{title || "未命名文章"}</h2><p>草稿</p></header><div className="articleBody" dangerouslySetInnerHTML={{ __html: bodyHtml }} /></article></div></section>
 
       <aside className="publishPanel" aria-label="发布设置">
         <div className="panelHead"><div><p className="panelKicker">设置</p><h2>发布准备</h2></div></div>
@@ -386,5 +634,7 @@ export default function App() {
         <div className="publishFooter"><button className="primaryButton wide" type="button" onClick={copyForWechat}>{copied}</button><p>复制正文后粘贴到公众号编辑器，再填写标题、作者和封面。</p></div>
       </aside>
     </section>
+
+    {historyOpen && <div className="historyOverlay" role="presentation" onClick={() => setHistoryOpen(false)}><section className="historyDialog" role="dialog" aria-modal="true" aria-labelledby="history-title" onClick={(event) => event.stopPropagation()}><div className="historyHeader"><div><p className="panelKicker">自动备份</p><h2 id="history-title">历史版本</h2></div><button type="button" aria-label="关闭历史版本" onClick={() => setHistoryOpen(false)}>×</button></div><p className="historyHint">每次自动或手动保存前保留旧内容，每篇文章最多保存 {maxVersionsPerArticle} 个版本。</p><div className="historyList">{currentHistory.length ? currentHistory.map((version) => <article className="historyItem" key={version.id}><div><strong>{formatVersionTime(version.savedAt)}</strong><span>{version.markdown.replace(/\s+/g, " ").slice(0, 90) || "空白内容"}</span><em>{stripMarkdown(version.markdown).replace(/\s/g, "").length} 字</em></div><button type="button" onClick={() => restoreVersion(version)}>恢复此版本</button></article>) : <div className="historyEmpty">还没有历史版本。编辑内容并等待自动保存后，这里会出现可恢复版本。</div>}</div></section></div>}
   </main>;
 }

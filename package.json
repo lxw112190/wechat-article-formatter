@@ -12,6 +12,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "dompurify": "^3.4.12",
+    "marked": "^18.0.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
@@ -21,6 +23,6 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "typescript": "5.9.3",
-    "vite": "8.0.13"
+    "vite": "^8.1.5"
   }
 }
