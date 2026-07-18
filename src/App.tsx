@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, ClipboardEvent as ReactClipboardEvent, CSSProperties } from "react";
+import type { ChangeEvent, ClipboardEvent as ReactClipboardEvent, CSSProperties, DragEvent as ReactDragEvent } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import { compressImageFile, deleteArticleImageAssets, deleteImageAsset, getArticleImageAssets, putImageAsset } from "./imageAssets";
+import type { ImageAsset } from "./imageAssets";
 
 type Theme = {
   id: string;
@@ -30,6 +32,20 @@ type ArticleVersion = {
   title: string;
   markdown: string;
   savedAt: string;
+};
+
+type OutlineItem = {
+  level: number;
+  text: string;
+  position: number;
+  line: number;
+};
+
+type PreflightIssue = {
+  id: string;
+  label: string;
+  detail: string;
+  status: "pass" | "warning" | "error";
 };
 
 const themes: Theme[] = [
@@ -91,6 +107,7 @@ const initialArticles: Article[] = [
 const articleStorageKey = "wechat-publisher-articles";
 const historyStorageKey = "wechat-publisher-history";
 const maxVersionsPerArticle = 30;
+const localAssetPattern = /!\[([^\]]*)\]\(asset:\/\/([A-Za-z0-9-]+)\)/g;
 
 function getSavedArticles() {
   try {
@@ -119,12 +136,134 @@ function getSavedHistory() {
 
 function stripMarkdown(value: string) {
   const template = document.createElement("template");
-  template.innerHTML = DOMPurify.sanitize(marked.parse(value, { async: false, gfm: true }));
+  const withAssetLabels = value.replace(localAssetPattern, (_match, alt: string) => alt ? `【图片：${alt}】` : "【图片】");
+  template.innerHTML = DOMPurify.sanitize(marked.parse(withAssetLabels, { async: false, gfm: true }));
   return (template.content.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
-function renderMarkdown(markdown: string, theme: Theme) {
-  const rawHtml = marked.parse(markdown, { async: false, gfm: true, breaks: false });
+function prepareAssetMarkdown(markdown: string) {
+  return markdown.replace(localAssetPattern, (_match, alt: string, id: string) => `<img data-asset-id="${escapeHtml(id)}" alt="${escapeHtml(alt)}">`);
+}
+
+function getLocalAssetReferences(markdown: string) {
+  const references: Array<{ id: string; alt: string }> = [];
+  const seen = new Set<string>();
+  for (const match of markdown.matchAll(localAssetPattern)) {
+    const id = match[2];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    references.push({ id, alt: match[1] });
+  }
+  return references;
+}
+
+function cleanHeadingText(value: string) {
+  return value
+    .replace(/\s+#+\s*$/, "")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[*_~`]/g, "")
+    .replace(/<[^>]+>/g, "")
+    .trim();
+}
+
+function getMarkdownOutline(markdown: string) {
+  const outline: OutlineItem[] = [];
+  const rows = markdown.match(/[^\n]*(?:\n|$)/g)?.filter((row, index, items) => row.length || index < items.length - 1) ?? [];
+  let offset = 0;
+  let fence: { marker: string; length: number } | null = null;
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const raw = rows[index];
+    const line = raw.replace(/\r?\n$/, "");
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (!fence) fence = { marker, length: fenceMatch[1].length };
+      else if (fence.marker === marker && fenceMatch[1].length >= fence.length) fence = null;
+      offset += raw.length;
+      continue;
+    }
+    if (fence) {
+      offset += raw.length;
+      continue;
+    }
+
+    const atx = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*$/);
+    if (atx) {
+      const text = cleanHeadingText(atx[2]);
+      if (text) outline.push({ level: atx[1].length, text, position: offset, line: index + 1 });
+      offset += raw.length;
+      continue;
+    }
+
+    const nextLine = rows[index + 1]?.replace(/\r?\n$/, "") ?? "";
+    const setext = line.trim() && nextLine.match(/^ {0,3}(=+|-+)\s*$/);
+    if (setext) {
+      const text = cleanHeadingText(line.trim());
+      if (text) outline.push({ level: setext[1][0] === "=" ? 1 : 2, text, position: offset, line: index + 1 });
+    }
+    offset += raw.length;
+  }
+  return outline;
+}
+
+function inspectBeforePublish(title: string, markdown: string, plainText: string, outline: OutlineItem[], assets: ImageAsset[], assetLibraryReady: boolean) {
+  const issues: PreflightIssue[] = [];
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle || trimmedTitle === "未命名文章") issues.push({ id: "title", label: "文章标题", detail: "请填写明确的文章标题。", status: "error" });
+  else if (trimmedTitle.length > 30) issues.push({ id: "title", label: "文章标题", detail: `当前 ${trimmedTitle.length} 字，建议确认移动端展示是否完整。`, status: "warning" });
+  else issues.push({ id: "title", label: "文章标题", detail: `${trimmedTitle.length} 字，长度适中。`, status: "pass" });
+
+  const characterTotal = plainText.replace(/\s/g, "").length;
+  if (!markdown.trim() || characterTotal < 20) issues.push({ id: "body", label: "正文内容", detail: "正文为空或内容过少，暂不建议发布。", status: "error" });
+  else if (characterTotal < 300) issues.push({ id: "body", label: "正文内容", detail: `当前约 ${characterTotal} 字，请确认内容已经完整。`, status: "warning" });
+  else issues.push({ id: "body", label: "正文内容", detail: `正文约 ${characterTotal} 字。`, status: "pass" });
+
+  const headingJumps = outline.some((item, index) => index > 0 && item.level > outline[index - 1].level + 1);
+  const h1Count = outline.filter((item) => item.level === 1).length;
+  if (!outline.length && characterTotal > 500) issues.push({ id: "outline", label: "标题结构", detail: "长文没有小标题，建议分节以方便阅读。", status: "warning" });
+  else if (headingJumps || h1Count > 1) issues.push({ id: "outline", label: "标题结构", detail: headingJumps ? "存在标题层级跳跃，例如从二级直接跳到四级。" : "正文中存在多个一级标题，建议只保留一个。", status: "warning" });
+  else issues.push({ id: "outline", label: "标题结构", detail: outline.length ? `${outline.length} 个标题，层级连续。` : "短文未使用小标题。", status: "pass" });
+
+  const localReferences = getLocalAssetReferences(markdown);
+  const assetIds = new Set(assets.map((asset) => asset.id));
+  const missingAssets = localReferences.filter((reference) => !assetIds.has(reference.id));
+  if (!assetLibraryReady && localReferences.length) issues.push({ id: "images", label: "本地图片", detail: "正在读取图片素材库…", status: "warning" });
+  else if (missingAssets.length) issues.push({ id: "images", label: "本地图片", detail: `${missingAssets.length} 个图片 ID 缺少本机素材：${missingAssets.map((item) => item.id).join("、")}`, status: "error" });
+  else if (localReferences.length) issues.push({ id: "images", label: "本地图片", detail: `${localReferences.length} 张图片复制时会转为 ID 占位，需在公众号后台上传。`, status: "warning" });
+  else issues.push({ id: "images", label: "本地图片", detail: "没有待手动上传的本地图片。", status: "pass" });
+
+  const imageMatches = [...markdown.matchAll(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g)];
+  const missingAlt = imageMatches.filter((match) => !match[1].trim()).length;
+  const insecureImages = imageMatches.filter((match) => /^http:\/\//i.test(match[2])).length;
+  if (missingAlt || insecureImages) issues.push({ id: "image-meta", label: "图片说明", detail: `${missingAlt ? `${missingAlt} 张图片缺少说明` : ""}${missingAlt && insecureImages ? "；" : ""}${insecureImages ? `${insecureImages} 张图片使用 HTTP 地址` : ""}。`, status: "warning" });
+  else issues.push({ id: "image-meta", label: "图片说明", detail: imageMatches.length ? "图片均有说明，地址协议正常。" : "正文没有图片。", status: "pass" });
+
+  const markdownWithoutImages = markdown.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
+  const linkMatches = [...markdownWithoutImages.matchAll(/\[([^\]]*)\]\(([^)]*)\)/g)];
+  const emptyLinks = linkMatches.filter((match) => !match[2].trim()).length;
+  const insecureLinks = linkMatches.filter((match) => /^http:\/\//i.test(match[2].trim())).length;
+  const exampleLinks = linkMatches.filter((match) => /example\.com|图片地址/i.test(match[2])).length;
+  if (emptyLinks) issues.push({ id: "links", label: "正文链接", detail: `${emptyLinks} 个链接缺少地址。`, status: "error" });
+  else if (insecureLinks || exampleLinks) issues.push({ id: "links", label: "正文链接", detail: `${insecureLinks ? `${insecureLinks} 个 HTTP 链接` : ""}${insecureLinks && exampleLinks ? "；" : ""}${exampleLinks ? `${exampleLinks} 个示例链接未替换` : ""}。`, status: "warning" });
+  else issues.push({ id: "links", label: "正文链接", detail: linkMatches.length ? `${linkMatches.length} 个链接已完成基础检查。` : "正文没有外部链接。", status: "pass" });
+
+  const placeholderTerms = ["开始写作...", "图片需重新上传", "待补充", "TODO", "TBD", "https://example.com"];
+  const foundTerms = placeholderTerms.filter((term) => markdown.toLowerCase().includes(term.toLowerCase()));
+  if (foundTerms.length) issues.push({ id: "placeholders", label: "占位内容", detail: `发现可能未完成的内容：${foundTerms.join("、")}`, status: "warning" });
+  else issues.push({ id: "placeholders", label: "占位内容", detail: "未发现常见草稿占位词。", status: "pass" });
+
+  const tableCount = (markdown.match(/^\s*\|.+\|\s*$/gm) ?? []).length ? (markdown.match(/^\s*\|?\s*:?-{3,}/gm) ?? []).length : 0;
+  const hasRawHtml = /<(?:details|summary|div|section|table|video|audio|iframe)\b/i.test(markdown);
+  if (tableCount || hasRawHtml) issues.push({ id: "compatibility", label: "移动端兼容", detail: `${tableCount ? `含 ${tableCount} 个表格，请检查窄屏展示` : ""}${tableCount && hasRawHtml ? "；" : ""}${hasRawHtml ? "含 HTML 内容，请在公众号后台复查样式" : ""}。`, status: "warning" });
+  else issues.push({ id: "compatibility", label: "移动端兼容", detail: "未发现表格或复杂 HTML 内容。", status: "pass" });
+
+  return issues;
+}
+
+function renderMarkdown(markdown: string, theme: Theme, assetUrls: Record<string, string> = {}) {
+  const rawHtml = marked.parse(prepareAssetMarkdown(markdown), { async: false, gfm: true, breaks: false });
   const template = document.createElement("template");
   template.innerHTML = DOMPurify.sanitize(rawHtml, { FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"] });
 
@@ -139,7 +278,10 @@ function renderMarkdown(markdown: string, theme: Theme) {
     H5: `margin:20px 0 8px;color:${theme.heading};font-size:15px;line-height:1.6;font-weight:700;`,
     H6: `margin:18px 0 8px;color:${theme.muted};font-size:14px;line-height:1.6;font-weight:700;`,
   };
-  template.content.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6").forEach((element) => element.setAttribute("style", headingStyles[element.tagName]));
+  template.content.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6").forEach((element, index) => {
+    element.setAttribute("style", headingStyles[element.tagName]);
+    element.dataset.outlineIndex = String(index);
+  });
   const firstHeading = template.content.querySelector<HTMLElement>("h2");
   if (firstHeading && !firstHeading.previousElementSibling) firstHeading.style.marginTop = "0";
 
@@ -167,6 +309,19 @@ function renderMarkdown(markdown: string, theme: Theme) {
   template.content.querySelectorAll<HTMLElement>("hr").forEach((element) => element.setAttribute("style", `height:1px;margin:30px 0;border:0;background:${theme.border};`));
 
   template.content.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+    const assetId = image.dataset.assetId;
+    if (assetId) {
+      const previewUrl = assetUrls[assetId];
+      if (previewUrl) image.src = previewUrl;
+      else {
+        const placeholder = document.createElement("section");
+        placeholder.dataset.assetId = assetId;
+        placeholder.setAttribute("style", `margin:8px 0 24px;padding:18px;border:1px dashed ${theme.border};border-radius:6px;background:${theme.accentSoft};color:${theme.muted};font-size:13px;line-height:1.7;text-align:center;`);
+        placeholder.textContent = `图片 ${assetId} 尚未在本机素材库中找到`;
+        image.replaceWith(placeholder);
+        return;
+      }
+    }
     image.setAttribute("style", `display:block;max-width:100%;height:auto;margin:0 auto;border-radius:6px;border:1px solid ${theme.border};`);
     const parent = image.parentElement;
     if (parent?.tagName === "P" && parent.children.length === 1 && !(parent.textContent ?? "").trim()) {
@@ -202,12 +357,31 @@ function renderMarkdown(markdown: string, theme: Theme) {
   return template.innerHTML;
 }
 
-function buildCopyHtml(bodyHtml: string) {
-  return `<div style="max-width:677px;margin:0 auto;padding:8px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif;">${bodyHtml}</div>`;
+function replaceLocalImagesWithIds(bodyHtml: string, theme: Theme) {
+  const template = document.createElement("template");
+  template.innerHTML = bodyHtml;
+  template.content.querySelectorAll<HTMLElement>("[data-asset-id]").forEach((element) => {
+    if (!element.isConnected && !template.content.contains(element)) return;
+    const id = element.dataset.assetId ?? "未知图片";
+    const alt = element instanceof HTMLImageElement ? element.alt : "";
+    const placeholder = document.createElement("section");
+    placeholder.setAttribute("style", `margin:8px 0 24px;padding:16px;border:1px dashed ${theme.border};border-radius:6px;background:${theme.accentSoft};color:${theme.heading};font-size:14px;line-height:1.7;text-align:center;`);
+    placeholder.innerHTML = `<strong style="display:block;margin-bottom:4px;">请上传图片：${escapeHtml(id)}</strong><span style="color:${theme.muted};font-size:12px;">${escapeHtml(alt || "无图片说明")}</span>`;
+    const figure = element.closest("figure");
+    (figure ?? element).replaceWith(placeholder);
+  });
+  template.content.querySelectorAll<HTMLElement>("[data-outline-index]").forEach((element) => element.removeAttribute("data-outline-index"));
+  return template.innerHTML;
+}
+
+function buildCopyHtml(bodyHtml: string, theme: Theme) {
+  const copyBody = replaceLocalImagesWithIds(bodyHtml, theme);
+  return `<div style="max-width:677px;margin:0 auto;padding:8px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif;">${copyBody}</div>`;
 }
 
 function buildExportHtml(title: string, bodyHtml: string, theme: Theme) {
   const safeTitle = escapeHtml(title || "未命名文章");
+  const exportBody = replaceLocalImagesWithIds(bodyHtml, theme);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -218,10 +392,24 @@ function buildExportHtml(title: string, bodyHtml: string, theme: Theme) {
 <body style="margin:0;background:#ffffff;">
   <article style="max-width:677px;margin:0 auto;padding:32px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif;">
     <h1 style="margin:0 0 28px;color:${theme.heading};font-size:28px;line-height:1.35;font-weight:800;">${safeTitle}</h1>
-    ${bodyHtml}
+    ${exportBody}
   </article>
 </body>
 </html>`;
+}
+
+function buildCopyPlainText(markdown: string) {
+  return stripMarkdown(markdown.replace(localAssetPattern, (_match, alt: string, id: string) => `\n\n【请上传图片：${id}${alt ? `；说明：${alt}` : ""}】\n\n`));
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatUpdatedAt(value: string) {
@@ -379,9 +567,14 @@ export default function App() {
   const previewRef = useRef<HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const markdownFileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const replaceImageInputRef = useRef<HTMLInputElement>(null);
   const syncTargetRef = useRef<HTMLElement | null>(null);
+  const outlineNavigationRef = useRef(false);
   const autoSaveTimerRef = useRef<number | null>(null);
   const pasteNoticeTimerRef = useRef<number | null>(null);
+  const imageMessageTimerRef = useRef<number | null>(null);
+  const assetUrlsRef = useRef<Record<string, string>>({});
   const formatRef = useRef<HTMLDivElement>(null);
   const [articles, setArticles] = useState(getSavedArticles);
   const [history, setHistory] = useState<ArticleVersion[]>(getSavedHistory);
@@ -396,19 +589,34 @@ export default function App() {
   const [libraryMessage, setLibraryMessage] = useState("");
   const [markdownMessage, setMarkdownMessage] = useState("");
   const [pasteMessage, setPasteMessage] = useState("");
+  const [imageMessage, setImageMessage] = useState("");
+  const [imageAssets, setImageAssets] = useState<ImageAsset[]>([]);
+  const [assetUrls, setAssetUrls] = useState<Record<string, string>>({});
+  const [assetLibraryReady, setAssetLibraryReady] = useState(false);
+  const [imageProcessing, setImageProcessing] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [replaceAssetId, setReplaceAssetId] = useState<string | null>(null);
   const [formatOpen, setFormatOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeOutlineIndex, setActiveOutlineIndex] = useState(0);
+  const [outlineOpen, setOutlineOpen] = useState(() => window.localStorage.getItem("wechat-editor-outline") !== "false");
   const [syncScroll, setSyncScroll] = useState(() => window.localStorage.getItem("wechat-sync-scroll") !== "false");
 
   const theme = themes.find((item) => item.id === themeId) ?? themes[0];
-  const bodyHtml = useMemo(() => renderMarkdown(markdown, theme), [markdown, theme]);
-  const copyHtml = useMemo(() => buildCopyHtml(bodyHtml), [bodyHtml]);
+  const bodyHtml = useMemo(() => renderMarkdown(markdown, theme, assetUrls), [markdown, theme, assetUrls]);
+  const copyHtml = useMemo(() => buildCopyHtml(bodyHtml, theme), [bodyHtml, theme]);
   const articlePlainText = useMemo(() => stripMarkdown(markdown), [markdown]);
-  const copyPlainText = useMemo(() => articlePlainText, [articlePlainText]);
+  const copyPlainText = useMemo(() => buildCopyPlainText(markdown), [markdown]);
+  const localAssetReferences = useMemo(() => getLocalAssetReferences(markdown), [markdown]);
+  const outline = useMemo(() => getMarkdownOutline(markdown), [markdown]);
   const characterCount = articlePlainText.replace(/\s/g, "").length;
   const imageCount = (markdown.match(/!\[[^\]]*\]\([^)]*\)/g) ?? []).length;
-  const headingCount = (markdown.match(/^#{1,6}\s+/gm) ?? []).length;
+  const headingCount = outline.length;
   const readMinutes = Math.max(1, Math.ceil(characterCount / 450));
+  const preflightIssues = useMemo(() => inspectBeforePublish(title, markdown, articlePlainText, outline, imageAssets, assetLibraryReady), [title, markdown, articlePlainText, outline, imageAssets, assetLibraryReady]);
+  const preflightErrors = preflightIssues.filter((issue) => issue.status === "error");
+  const preflightWarnings = preflightIssues.filter((issue) => issue.status === "warning");
+  const preflightPasses = preflightIssues.filter((issue) => issue.status === "pass").length;
   const activeArticle = articles.find((article) => article.id === activeId);
   const isDirty = Boolean(activeArticle && (activeArticle.title !== title || activeArticle.markdown !== markdown));
   const hasUnsavedChanges = isDirty || storageError;
@@ -462,9 +670,51 @@ export default function App() {
     if (syncScroll) requestAnimationFrame(() => syncScrollPosition(textareaRef.current, previewRef.current));
   }, [syncScroll]);
 
+  useEffect(() => {
+    window.localStorage.setItem("wechat-editor-outline", String(outlineOpen));
+  }, [outlineOpen]);
+
   useEffect(() => () => {
     if (pasteNoticeTimerRef.current) window.clearTimeout(pasteNoticeTimerRef.current);
+    if (imageMessageTimerRef.current) window.clearTimeout(imageMessageTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Object.values(assetUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    assetUrlsRef.current = {};
+    setAssetUrls({});
+    setImageAssets([]);
+    setAssetLibraryReady(false);
+    if (!activeId) {
+      setAssetLibraryReady(true);
+      return () => { cancelled = true; };
+    }
+
+    getArticleImageAssets(activeId).then((assets) => {
+      if (cancelled) return;
+      const urls = Object.fromEntries(assets.map((asset) => [asset.id, URL.createObjectURL(asset.blob)]));
+      assetUrlsRef.current = urls;
+      setImageAssets(assets);
+      setAssetUrls(urls);
+      setAssetLibraryReady(true);
+    }).catch(() => {
+      if (!cancelled) {
+        setAssetLibraryReady(true);
+        setImageMessage("图片素材库读取失败");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      Object.values(assetUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+      assetUrlsRef.current = {};
+    };
+  }, [activeId]);
+
+  useEffect(() => {
+    setActiveOutlineIndex((index) => Math.min(index, Math.max(0, outline.length - 1)));
+  }, [outline]);
 
   useEffect(() => {
     if (!formatOpen) return;
@@ -480,7 +730,7 @@ export default function App() {
   }, [formatOpen]);
 
   function syncScrollPosition(source: HTMLElement | null, target: HTMLElement | null) {
-    if (!syncScroll || !source || !target || syncTargetRef.current === source) return;
+    if (!syncScroll || outlineNavigationRef.current || !source || !target || syncTargetRef.current === source) return;
     const sourceRange = source.scrollHeight - source.clientHeight;
     const targetRange = target.scrollHeight - target.clientHeight;
     const progress = sourceRange > 0 ? source.scrollTop / sourceRange : 0;
@@ -510,18 +760,235 @@ export default function App() {
     if (!textarea) return;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    const before = start > 0 && markdown[start - 1] !== "\n" ? "\n\n" : "";
-    const after = end < markdown.length && markdown[end] !== "\n" ? "\n\n" : "";
-    const replacement = `${before}${content}${after}`;
-    setMarkdown(`${markdown.slice(0, start)}${replacement}${markdown.slice(end)}`);
+    let caret = start + content.length;
+    setMarkdown((current) => {
+      const safeStart = Math.min(start, current.length);
+      const safeEnd = Math.min(Math.max(end, safeStart), current.length);
+      const before = safeStart > 0 && current[safeStart - 1] !== "\n" ? "\n\n" : "";
+      const after = safeEnd < current.length && current[safeEnd] !== "\n" ? "\n\n" : "";
+      const replacement = `${before}${content}${after}`;
+      caret = safeStart + replacement.length - after.length;
+      return `${current.slice(0, safeStart)}${replacement}${current.slice(safeEnd)}`;
+    });
     requestAnimationFrame(() => {
       textarea.focus();
-      textarea.selectionStart = textarea.selectionEnd = start + replacement.length - after.length;
+      textarea.selectionStart = textarea.selectionEnd = caret;
     });
+  }
+
+  function updateOutlineFromEditor(position: number) {
+    if (!outline.length) return;
+    let nextIndex = 0;
+    outline.forEach((item, index) => {
+      if (item.position <= position) nextIndex = index;
+    });
+    setActiveOutlineIndex(nextIndex);
+  }
+
+  function handlePreviewScroll(source: HTMLElement) {
+    syncScrollPosition(source, textareaRef.current);
+    const headings = [...source.querySelectorAll<HTMLElement>("[data-outline-index]")];
+    if (!headings.length) return;
+    const threshold = source.getBoundingClientRect().top + 110;
+    let nextIndex = 0;
+    headings.forEach((heading) => {
+      if (heading.getBoundingClientRect().top <= threshold) nextIndex = Number(heading.dataset.outlineIndex ?? 0);
+    });
+    setActiveOutlineIndex(nextIndex);
+  }
+
+  function navigateToOutline(item: OutlineItem, index: number) {
+    setActiveOutlineIndex(index);
+    outlineNavigationRef.current = true;
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const lineEnd = markdown.indexOf("\n", item.position);
+      textarea.focus();
+      textarea.setSelectionRange(item.position, lineEnd < 0 ? markdown.length : lineEnd);
+      const lineHeight = Number.parseFloat(window.getComputedStyle(textarea).lineHeight) || 24;
+      textarea.scrollTop = Math.max(0, (item.line - 1) * lineHeight - textarea.clientHeight * 0.22);
+    }
+    const preview = previewRef.current;
+    const heading = preview?.querySelector<HTMLElement>(`[data-outline-index="${index}"]`);
+    if (preview && heading) {
+      const previewTop = preview.getBoundingClientRect().top;
+      const headingTop = heading.getBoundingClientRect().top;
+      preview.scrollTop = Math.max(0, preview.scrollTop + headingTop - previewTop - 24);
+    }
+    if (window.matchMedia("(max-width: 700px)").matches) setOutlineOpen(false);
+    requestAnimationFrame(() => { outlineNavigationRef.current = false; });
+  }
+
+  function showImageMessage(message: string, duration = 3200) {
+    if (imageMessageTimerRef.current) window.clearTimeout(imageMessageTimerRef.current);
+    setImageMessage(message);
+    imageMessageTimerRef.current = window.setTimeout(() => {
+      setImageMessage("");
+      imageMessageTimerRef.current = null;
+    }, duration);
+  }
+
+  function setAssetPreview(asset: ImageAsset) {
+    const previousUrl = assetUrlsRef.current[asset.id];
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    const nextUrls = { ...assetUrlsRef.current, [asset.id]: URL.createObjectURL(asset.blob) };
+    assetUrlsRef.current = nextUrls;
+    setAssetUrls(nextUrls);
+  }
+
+  async function addImageFiles(files: File[]) {
+    if (!activeId) {
+      showImageMessage("请先新建或选择一篇文章");
+      return;
+    }
+    const selected = files.filter((file) => file.type.startsWith("image/")).slice(0, 10);
+    if (!selected.length) return;
+    setImageProcessing(true);
+    try {
+      const added: ImageAsset[] = [];
+      for (const file of selected) {
+        const defaultAlt = file.name.replace(/\.[^.]+$/, "").trim() || "文章图片";
+        const asset = await compressImageFile(file, activeId, file.name || "粘贴图片", {}, undefined, defaultAlt);
+        await putImageAsset(asset);
+        added.push(asset);
+        setAssetPreview(asset);
+      }
+      setImageAssets((items) => [...items, ...added]);
+      insertBlock(added.map((asset) => `![${asset.alt}](asset://${asset.id})`).join("\n\n"));
+      const originalSize = added.reduce((total, asset) => total + asset.originalSize, 0);
+      const compressedSize = added.reduce((total, asset) => total + asset.compressedSize, 0);
+      showImageMessage(`已添加 ${added.length} 张图片：${formatBytes(originalSize)} → ${formatBytes(compressedSize)}`);
+    } catch (error) {
+      showImageMessage(error instanceof Error ? error.message : "图片处理失败");
+    } finally {
+      setImageProcessing(false);
+    }
+  }
+
+  function handleImageInput(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    void addImageFiles(files);
+  }
+
+  function handleEditorDrop(event: ReactDragEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+    setDragActive(false);
+    if (!files.length) return;
+    event.preventDefault();
+    void addImageFiles(files);
+  }
+
+  function beginReplaceImage(id: string) {
+    setReplaceAssetId(id);
+    replaceImageInputRef.current?.click();
+  }
+
+  async function handleReplaceImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    const current = imageAssets.find((asset) => asset.id === replaceAssetId);
+    setReplaceAssetId(null);
+    if (!file || !current) return;
+    setImageProcessing(true);
+    try {
+      const replacement = await compressImageFile(file, current.articleId, file.name, {}, current.id, current.alt);
+      const asset = { ...replacement, createdAt: current.createdAt };
+      await putImageAsset(asset);
+      setImageAssets((items) => items.map((item) => item.id === asset.id ? asset : item));
+      setAssetPreview(asset);
+      showImageMessage(`已替换 ${asset.id}：${formatBytes(asset.originalSize)} → ${formatBytes(asset.compressedSize)}`);
+    } catch (error) {
+      showImageMessage(error instanceof Error ? error.message : "图片替换失败");
+    } finally {
+      setImageProcessing(false);
+    }
+  }
+
+  async function recompressImage(asset: ImageAsset) {
+    if (asset.type === "image/gif") {
+      showImageMessage("GIF 为保留动画不会重新压缩");
+      return;
+    }
+    setImageProcessing(true);
+    try {
+      const result = await compressImageFile(asset.blob, asset.articleId, asset.name, { maxWidth: 960, quality: 0.74 }, asset.id, asset.alt);
+      const optimized = { ...result, originalSize: asset.originalSize, createdAt: asset.createdAt };
+      await putImageAsset(optimized);
+      setImageAssets((items) => items.map((item) => item.id === optimized.id ? optimized : item));
+      setAssetPreview(optimized);
+      showImageMessage(`已节省空间：${formatBytes(asset.compressedSize)} → ${formatBytes(optimized.compressedSize)}`);
+    } catch (error) {
+      showImageMessage(error instanceof Error ? error.message : "重新压缩失败");
+    } finally {
+      setImageProcessing(false);
+    }
+  }
+
+  function updateImageAlt(id: string, value: string) {
+    const alt = value.replace(/[\]\r\n]/g, " ").slice(0, 120);
+    setImageAssets((items) => items.map((asset) => asset.id === id ? { ...asset, alt } : asset));
+    const pattern = new RegExp(`!\\[[^\\]]*\\]\\(asset:\\/\\/${escapeRegExp(id)}\\)`, "g");
+    setMarkdown((content) => content.replace(pattern, () => `![${alt}](asset://${id})`));
+  }
+
+  async function saveImageAlt(id: string) {
+    const asset = imageAssets.find((item) => item.id === id);
+    if (!asset) return;
+    try {
+      await putImageAsset(asset);
+      showImageMessage("图片说明已保存", 1600);
+    } catch {
+      showImageMessage("图片说明保存失败");
+    }
+  }
+
+  function insertExistingImage(asset: ImageAsset) {
+    insertBlock(`![${asset.alt}](asset://${asset.id})`);
+    showImageMessage(`已插入 ${asset.id}`, 1600);
+  }
+
+  async function removeImage(asset: ImageAsset) {
+    if (!window.confirm(`确定删除图片 ${asset.id} 吗？正文中的对应引用也会被移除。`)) return;
+    try {
+      await deleteImageAsset(asset.id);
+      const previewUrl = assetUrlsRef.current[asset.id];
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      const nextUrls = { ...assetUrlsRef.current };
+      delete nextUrls[asset.id];
+      assetUrlsRef.current = nextUrls;
+      setAssetUrls(nextUrls);
+      setImageAssets((items) => items.filter((item) => item.id !== asset.id));
+      const pattern = new RegExp(`\\n{0,2}!\\[[^\\]]*\\]\\(asset:\\/\\/${escapeRegExp(asset.id)}\\)\\n{0,2}`, "g");
+      setMarkdown((content) => content.replace(pattern, "\n\n").replace(/\n{3,}/g, "\n\n"));
+      showImageMessage("图片已删除", 1600);
+    } catch {
+      showImageMessage("图片删除失败");
+    }
+  }
+
+  function downloadImage(asset: ImageAsset) {
+    const url = assetUrlsRef.current[asset.id] ?? URL.createObjectURL(asset.blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = asset.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    if (!assetUrlsRef.current[asset.id]) URL.revokeObjectURL(url);
   }
 
   function handleEditorPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
     const html = event.clipboardData.getData("text/html");
+    const imageFiles = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    if (!html.trim() && imageFiles.length) {
+      event.preventDefault();
+      void addImageFiles(imageFiles);
+      return;
+    }
     if (!html.trim()) return;
     const converted = convertPastedHtml(html);
     const content = converted.markdown || event.clipboardData.getData("text/plain");
@@ -565,7 +1032,7 @@ export default function App() {
       ordered: () => insertMarkdown("1. ", "", "列表项"),
       task: () => insertMarkdown("- [ ] ", "", "待办事项"),
       link: () => insertMarkdown("[", "](https://example.com)", "链接文字"),
-      image: () => insertMarkdown("![图片说明](", ")", "图片地址"),
+      image: () => imageInputRef.current?.click(),
       inlineCode: () => insertMarkdown("`", "`", "代码"),
       codeBlock: () => insertMarkdown("```text\n", "\n```", "代码块"),
       table: () => insertBlock("| 表头一 | 表头二 | 表头三 |\n| --- | :---: | ---: |\n| 内容 | 居中 | 右对齐 |"),
@@ -635,6 +1102,7 @@ export default function App() {
   function deleteArticle() {
     const current = articles.find((article) => article.id === activeId);
     if (!current || !window.confirm(`确定删除“${current.title || "未命名文章"}”吗？`)) return;
+    void deleteArticleImageAssets(current.id);
     const remaining = articles.filter((article) => article.id !== activeId);
     setArticles(remaining);
     setHistory((items) => items.filter((version) => version.articleId !== activeId));
@@ -748,12 +1216,16 @@ export default function App() {
   }
 
   async function copyForWechat() {
+    if (preflightErrors.length && !window.confirm(`发布前检查发现 ${preflightErrors.length} 个必须处理的问题：\n\n${preflightErrors.map((issue) => `• ${issue.label}：${issue.detail}`).join("\n")}\n\n仍然复制正文吗？`)) return;
     try {
       if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([copyHtml], { type: "text/html" }), "text/plain": new Blob([copyPlainText], { type: "text/plain" }) })]);
       else await navigator.clipboard.writeText(copyPlainText);
       setCopied("已复制正文");
     } catch {
       await navigator.clipboard.writeText(copyPlainText); setCopied("已复制文本");
+    }
+    if (localAssetReferences.length) {
+      window.alert(`正文已复制。本文有 ${localAssetReferences.length} 张本地图片未嵌入正文，复制内容中已使用图片 ID 占位。\n\n请在公众号后台按 ID 上传图片，并删除对应占位块。压缩后的图片可在“图片素材”区域下载。`);
     }
     window.setTimeout(() => setCopied("复制正文"), 1600);
   }
@@ -774,6 +1246,8 @@ export default function App() {
       <div className="topbarActions"><button className="ghostButton" type="button" title={hasUnsavedChanges ? "立即保存当前修改" : "当前内容已保存"} onClick={saveArticle}>{saved}</button><button className="ghostButton" type="button" onClick={() => setHistoryOpen(true)} disabled={!activeId}>历史版本{currentHistory.length ? ` (${currentHistory.length})` : ""}</button><button className="ghostButton" type="button" onClick={() => markdownFileInputRef.current?.click()}>{markdownMessage && markdownMessage !== "已导出" ? markdownMessage : "导入 .md"}</button><button className="ghostButton" type="button" onClick={exportMarkdown} disabled={!activeId}>{markdownMessage === "已导出" ? "已导出" : "导出 .md"}</button><button className="ghostButton" type="button" onClick={deleteArticle} disabled={!activeId}>删除文章</button><button className="ghostButton" type="button" onClick={exportLibrary}>{libraryMessage || "导出 JSON"}</button><button className="ghostButton" type="button" onClick={() => fileInputRef.current?.click()}>{libraryMessage || "导入 JSON"}</button><button className="ghostButton" type="button" onClick={exportHtml}>导出 HTML</button><button className="primaryButton" type="button" onClick={copyForWechat}>{copied}</button></div>
       <input ref={fileInputRef} className="visuallyHidden" type="file" accept="application/json,.json" onChange={importLibrary} />
       <input ref={markdownFileInputRef} className="visuallyHidden" type="file" accept=".md,.markdown,text/markdown,text/plain" onChange={importMarkdown} />
+      <input ref={imageInputRef} className="visuallyHidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple onChange={handleImageInput} />
+      <input ref={replaceImageInputRef} className="visuallyHidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleReplaceImage} />
     </header>
 
     <section className="appGrid">
@@ -782,25 +1256,39 @@ export default function App() {
         <div className="articleItems">{articles.map((article) => <button key={article.id} type="button" className={article.id === activeId ? "articleItem active" : "articleItem"} onClick={() => selectArticle(article)}><strong>{article.title || "未命名文章"}</strong><span>{stripMarkdown(article.markdown) || "暂无内容"}</span><em>{formatUpdatedAt(article.updatedAt)}</em></button>)}</div>
       </aside>
 
-      <section className="editorPanel" aria-label="Markdown 编辑器">
-        <div className="panelHead"><div><p className="panelKicker">草稿</p><h2>Markdown 编辑</h2></div><div className="panelHeadActions"><span className={`saveState${hasUnsavedChanges ? " dirty" : ""}`}>{storageError ? "⚠ 存储失败" : isDirty ? "● 未保存" : "✓ 已保存"}</span><button className={`syncToggle${syncScroll ? " active" : ""}`} type="button" aria-pressed={syncScroll} title="编辑区与手机预览按阅读进度同步滚动" onClick={() => setSyncScroll((enabled) => !enabled)}>同步滚动 · {syncScroll ? "开" : "关"}</button><div className="metricPill">{readMinutes} 分钟阅读</div></div></div>
-        <div className="titleFields"><label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="填写文章标题" /></label></div>
-        <div className="toolbar" aria-label="排版工具">
-          <button type="button" title="加粗" onClick={() => applyFormat("bold")}>B</button><button type="button" title="引用" onClick={() => applyFormat("quote")}>“</button><button type="button" title="无序列表" onClick={() => applyFormat("list")}>列表</button><button type="button" title="行内代码" onClick={() => applyFormat("inlineCode")}>{"</>"}</button><button type="button" title="代码块" onClick={() => applyFormat("codeBlock")}>{"{ }"}</button>
-          <div className="formatPicker" ref={formatRef}><button className="formatTrigger" type="button" aria-expanded={formatOpen} onClick={() => setFormatOpen((open) => !open)}>格式 <span>⌄</span></button>{formatOpen && <div className="formatMenu" role="menu">{formatGroups.map((group) => <div className="formatGroup" key={group.label}><p>{group.label}</p>{group.actions.map(([id, label]) => <button key={id} type="button" onClick={() => applyFormat(id)}>{label}</button>)}</div>)}</div>}</div>
+      <section className={`editorPanel${dragActive ? " isDragging" : ""}`} aria-label="Markdown 编辑器">
+        <div className="panelHead"><div><p className="panelKicker">草稿</p><h2>Markdown 编辑</h2></div><div className="panelHeadActions"><span className={`saveState${hasUnsavedChanges ? " dirty" : ""}`}>{storageError ? "⚠ 存储失败" : isDirty ? "● 未保存" : "✓ 已保存"}</span><button className={`outlineToggle${outlineOpen ? " active" : ""}`} type="button" aria-expanded={outlineOpen} title="显示或收起当前文章大纲" onClick={() => setOutlineOpen((open) => !open)}>大纲 · {outlineOpen ? "开" : "关"}</button><button className={`syncToggle${syncScroll ? " active" : ""}`} type="button" aria-pressed={syncScroll} title="编辑区与手机预览按阅读进度同步滚动" onClick={() => setSyncScroll((enabled) => !enabled)}>同步滚动 · {syncScroll ? "开" : "关"}</button><div className="metricPill">{readMinutes} 分钟阅读</div></div></div>
+        <div className={`editorWorkspace${outlineOpen ? "" : " outlineCollapsed"}`}>
+          <aside className="outlinePanel editorOutline" aria-label="文章大纲"><div className="outlineHead"><div><p className="panelKicker">导航</p><h3>文章大纲</h3></div><div className="outlineMeta"><span>{outline.length}</span><button type="button" title="收起文章大纲" aria-label="收起文章大纲" onClick={() => setOutlineOpen(false)}>×</button></div></div>{outline.length ? <nav className="outlineItems">{outline.map((item, index) => <button key={`${item.position}-${item.text}`} className={activeOutlineIndex === index ? "active" : ""} type="button" style={{ paddingLeft: `${8 + Math.max(0, item.level - 1) * 10}px` }} title={`第 ${item.line} 行 · H${item.level}`} onClick={() => navigateToOutline(item, index)}><span>H{item.level}</span><strong>{item.text}</strong></button>)}</nav> : <p className="outlineEmpty">添加 Markdown 标题后，这里会生成可点击的大纲。</p>}</aside>
+          <div className="editorMain">
+            <div className="titleFields"><label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="填写文章标题" /></label></div>
+            <div className="toolbar" aria-label="排版工具">
+              <button type="button" title="加粗" onClick={() => applyFormat("bold")}>B</button><button type="button" title="引用" onClick={() => applyFormat("quote")}>“</button><button type="button" title="无序列表" onClick={() => applyFormat("list")}>列表</button><button type="button" title="行内代码" onClick={() => applyFormat("inlineCode")}>{"</>"}</button><button type="button" title="代码块" onClick={() => applyFormat("codeBlock")}>{"{ }"}</button><button type="button" title="上传并压缩图片" disabled={imageProcessing} onClick={() => imageInputRef.current?.click()}>{imageProcessing ? "处理中" : "图片"}</button>
+              <div className="formatPicker" ref={formatRef}><button className="formatTrigger" type="button" aria-expanded={formatOpen} onClick={() => setFormatOpen((open) => !open)}>格式 <span>⌄</span></button>{formatOpen && <div className="formatMenu" role="menu">{formatGroups.map((group) => <div className="formatGroup" key={group.label}><p>{group.label}</p>{group.actions.map(([id, label]) => <button key={id} type="button" onClick={() => applyFormat(id)}>{label}</button>)}</div>)}</div>}</div>
+            </div>
+            {(pasteMessage || imageMessage) && <div className="pasteNotice" role="status">{imageMessage || pasteMessage}</div>}
+            <textarea ref={textareaRef} className="markdownInput" value={markdown} onChange={(event) => { setMarkdown(event.target.value); updateOutlineFromEditor(event.currentTarget.selectionStart); }} onSelect={(event) => updateOutlineFromEditor(event.currentTarget.selectionStart)} onPaste={handleEditorPaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) setDragActive(true); }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={() => setDragActive(false)} onDrop={handleEditorDrop} onScroll={(event) => syncScrollPosition(event.currentTarget, previewRef.current)} spellCheck={false} />
+            <div className="editorStats"><span>{characterCount} 字</span><span>{headingCount} 个小标题</span><span>{imageCount} 张图片</span></div>
+            <section className="imageManager" aria-label="图片素材">
+              <div className="imageManagerHead"><div><h3>图片素材</h3><p>自动压缩后保存在本机；正文只记录图片 ID。</p></div><button type="button" disabled={imageProcessing || !activeId} onClick={() => imageInputRef.current?.click()}>{imageProcessing ? "正在处理…" : "+ 添加图片"}</button></div>
+              {imageAssets.length ? <div className="imageAssetList">{imageAssets.map((asset) => <article className="imageAssetCard" key={asset.id}>
+                <img src={assetUrls[asset.id]} alt={asset.alt} />
+                <div className="imageAssetInfo"><strong>{asset.id}</strong><span>{asset.width} × {asset.height} · {formatBytes(asset.originalSize)} → {formatBytes(asset.compressedSize)}</span><label>图片说明<input value={asset.alt} maxLength={120} onChange={(event) => updateImageAlt(asset.id, event.target.value)} onBlur={() => void saveImageAlt(asset.id)} /></label><div className="imageAssetActions"><button type="button" onClick={() => insertExistingImage(asset)}>插入</button><button type="button" onClick={() => downloadImage(asset)}>下载</button><button type="button" disabled={imageProcessing} onClick={() => void recompressImage(asset)}>节省空间</button><button type="button" disabled={imageProcessing} onClick={() => beginReplaceImage(asset.id)}>替换</button><button className="danger" type="button" onClick={() => void removeImage(asset)}>删除</button></div></div>
+              </article>)}</div> : <button className="imageDropEmpty" type="button" disabled={imageProcessing || !activeId} onClick={() => imageInputRef.current?.click()}>粘贴、拖拽图片到编辑区，或点击选择图片<br /><span>支持 JPG、PNG、WebP、GIF，单张最大 25MB</span></button>}
+              <p className="imageStorageHint">图片不会进入 JSON 或 .md 文件；请在更换设备前下载需要的图片。复制正文时会使用图片 ID 占位，不嵌入 Base64。</p>
+            </section>
+          </div>
         </div>
-        {pasteMessage && <div className="pasteNotice" role="status">{pasteMessage}</div>}
-        <textarea ref={textareaRef} className="markdownInput" value={markdown} onChange={(event) => setMarkdown(event.target.value)} onPaste={handleEditorPaste} onScroll={(event) => syncScrollPosition(event.currentTarget, previewRef.current)} spellCheck={false} />
-        <div className="editorStats"><span>{characterCount} 字</span><span>{headingCount} 个小标题</span><span>{imageCount} 张图片</span></div>
       </section>
 
-      <section className="previewPanel" aria-label="公众号预览"><div className="phoneShell"><div className="phoneTop"><span>公众号</span><span>{syncScroll ? "同步预览" : "预览"}</span></div><article ref={previewRef} className="wechatArticle" style={themeVars} onScroll={(event) => syncScrollPosition(event.currentTarget, textareaRef.current)}><header className="articleHeader"><h2>{title || "未命名文章"}</h2><p>草稿</p></header><div className="articleBody" dangerouslySetInnerHTML={{ __html: bodyHtml }} /></article></div></section>
+      <section className="previewPanel" aria-label="公众号预览"><div className="phoneShell"><div className="phoneTop"><span>公众号</span><span>{syncScroll ? "同步预览" : "预览"}</span></div><article ref={previewRef} className="wechatArticle" style={themeVars} onScroll={(event) => handlePreviewScroll(event.currentTarget)}><header className="articleHeader"><h2>{title || "未命名文章"}</h2><p>草稿</p></header><div className="articleBody" dangerouslySetInnerHTML={{ __html: bodyHtml }} /></article></div></section>
 
       <aside className="publishPanel" aria-label="发布设置">
         <div className="panelHead"><div><p className="panelKicker">设置</p><h2>发布准备</h2></div></div>
         <div className="sectionBlock"><h3>微信字段</h3><div className="fieldCopyGrid"><button type="button" onClick={() => copyPlainField("title", title)}>{fieldCopied === "title" ? "已复制标题" : "复制标题"}</button></div><p className="fieldHint">标题需要单独粘贴到公众号后台；作者与封面由公众号后台自行填写和编辑。</p></div>
+        <div className="sectionBlock"><h3>发布前检查</h3><div className={`preflightSummary${preflightErrors.length ? " error" : preflightWarnings.length ? " warning" : " ready"}`}><strong>{preflightErrors.length ? `${preflightErrors.length} 个问题待处理` : preflightWarnings.length ? `${preflightWarnings.length} 项建议确认` : "可以发布"}</strong><span>{preflightPasses}/{preflightIssues.length} 项通过</span></div><div className="preflightList">{preflightIssues.map((issue) => <article className={`preflightItem ${issue.status}`} key={issue.id}><span aria-hidden="true">{issue.status === "pass" ? "✓" : issue.status === "warning" ? "!" : "×"}</span><div><strong>{issue.label}</strong><p>{issue.detail}</p></div></article>)}</div></div>
         <div className="sectionBlock"><h3>排版主题</h3><div className="themeGrid">{themes.map((item) => <button className={item.id === themeId ? "themeOption active" : "themeOption"} key={item.id} style={{ "--swatch": item.accent } as CSSProperties} type="button" onClick={() => setThemeId(item.id)}><span />{item.name}</button>)}</div></div>
-        <div className="publishFooter"><button className="primaryButton wide" type="button" onClick={copyForWechat}>{copied}</button><p>复制正文后粘贴到公众号编辑器，再填写标题、作者和封面。</p></div>
+        <div className="publishFooter"><button className="primaryButton wide" type="button" onClick={copyForWechat}>{copied}</button>{localAssetReferences.length > 0 && <div className="assetPublishWarning">本文有 {localAssetReferences.length} 张本地图片。复制后请按图片 ID 在公众号后台重新上传。</div>}<p>复制正文后粘贴到公众号编辑器，再填写标题、作者和封面。</p></div>
       </aside>
     </section>
 
