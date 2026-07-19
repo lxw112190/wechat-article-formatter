@@ -6,6 +6,9 @@
 
 👉 在线体验：https://wechat-article-formatter.lxw112190.workers.dev
 
+Author: 天天代码码天天  |  QQ: 819069052  
+QQ Group: C# 人工智能实践  |  群号: 758616458
+
 ## 功能
 
 - CommonMark + GFM Markdown 解析，支持六级标题、嵌套列表、任务列表、表格、删除线、代码、自动链接、HTML 块等标准语法。
@@ -85,6 +88,12 @@ npm run lint      # TypeScript 类型检查
 ## 截图
 
 ![主界面](./assets/main.jpg)
+
+## 赞助
+
+如果这个项目对你有帮助，欢迎使用微信赞助支持项目持续维护与改进。
+
+<img src="./assets/sponsor.jpg" alt="微信赞助码" width="360">
 
 ## License
 
