@@ -21,3 +21,22 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+      - name: Package downloadable build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cd dist
+          zip -r ../wechat-article-formatter-main-${GITHUB_SHA::7}.zip .
+          cd ..
+          sha256sum wechat-article-formatter-main-${GITHUB_SHA::7}.zip > SHA256SUMS
+
+      - name: Upload downloadable build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechat-article-formatter-main-${{ github.run_number }}
+          path: |
+            wechat-article-formatter-main-*.zip
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
