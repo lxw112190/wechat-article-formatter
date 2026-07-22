@@ -32,7 +32,7 @@ describe("complete ZIP backup", () => {
         assets: [asset],
         settings: { themeId: "ink", syncScroll: false, outlineOpen: true },
       },
-      "0.1.0",
+      "0.2.0",
     );
     const restored = await readCompleteBackup(bytes);
     expect(restored.manifest.format).toBe(backupFormat);
@@ -47,7 +47,7 @@ describe("complete ZIP backup", () => {
   it("rejects backups from a newer format version", async () => {
     const bytes = await createCompleteBackup(
       { articles: [article], history: [], assets: [], settings: { themeId: "wechat", syncScroll: true, outlineOpen: true } },
-      "0.1.0",
+      "0.2.0",
     );
     const zip = await JSZip.loadAsync(bytes);
     const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
@@ -55,5 +55,42 @@ describe("complete ZIP backup", () => {
     zip.file("manifest.json", JSON.stringify(manifest));
     const newerBytes = await zip.generateAsync({ type: "uint8array" });
     await expect(readCompleteBackup(newerBytes)).rejects.toThrow("请升级工具后恢复");
+  });
+
+  it("restores legacy V2 backups with capacity checks", async () => {
+    const bytes = await createCompleteBackup(
+      { articles: [article], history: [], assets: [], settings: { themeId: "wechat", syncScroll: true, outlineOpen: true } },
+      "0.2.0",
+    );
+    const zip = await JSZip.loadAsync(bytes);
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    manifest.version = 2;
+    delete manifest.files;
+    zip.file("manifest.json", JSON.stringify(manifest));
+    const legacyBytes = await zip.generateAsync({ type: "uint8array" });
+    const restored = await readCompleteBackup(legacyBytes);
+    expect(restored.articles).toEqual([article]);
+    expect(restored.manifest.version).toBe(2);
+  });
+
+  it("rejects a payload whose SHA-256 no longer matches the manifest", async () => {
+    const bytes = await createCompleteBackup(
+      { articles: [article], history: [], assets: [], settings: { themeId: "wechat", syncScroll: true, outlineOpen: true } },
+      "0.2.0",
+    );
+    const zip = await JSZip.loadAsync(bytes);
+    const originalArticles = await zip.file("articles.json")!.async("string");
+    zip.file("articles.json", originalArticles.replace(/备份测试/g, "备份测坏"));
+    const tamperedBytes = await zip.generateAsync({ type: "uint8array" });
+    await expect(readCompleteBackup(tamperedBytes)).rejects.toThrow("哈希校验失败");
+  });
+
+  it("rejects compressed and uncompressed data above configured safety limits", async () => {
+    const bytes = await createCompleteBackup(
+      { articles: [article], history: [], assets: [], settings: { themeId: "wechat", syncScroll: true, outlineOpen: true } },
+      "0.2.0",
+    );
+    await expect(readCompleteBackup(bytes, { maxCompressedBytes: bytes.byteLength - 1 })).rejects.toThrow("压缩包超过容量上限");
+    await expect(readCompleteBackup(bytes, { maxUncompressedBytes: 1 })).rejects.toThrow("解压后总容量超过安全上限");
   });
 });
