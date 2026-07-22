@@ -1,0 +1,130 @@
+﻿.appGrid {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.36fr) minmax(540px, 1.3fr) minmax(330px, 0.76fr) minmax(285px, 0.5fr);
+  gap: 16px;
+  max-width: 1900px;
+  margin: 0 auto;
+  align-items: stretch;
+}
+.articleList,
+.editorPanel,
+.previewPanel,
+.publishPanel {
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(28, 38, 34, 0.08);
+}
+.articleList,
+.editorPanel,
+.publishPanel {
+  padding: 18px;
+}
+.articleList {
+  display: flex;
+  flex-direction: column;
+  min-height: 720px;
+}
+.listHead,
+.panelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.listHead {
+  margin-bottom: 16px;
+}
+.panelHead {
+  margin-bottom: 16px;
+}
+.panelHead h2,
+.listHead h2 {
+  font-size: 20px;
+  line-height: 1.2;
+}
+.panelHeadActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.articleListActions {
+  display: flex;
+  gap: 6px;
+}
+.addArticle {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #b9c8c0;
+  border-radius: 8px;
+  background: #f8fbf9;
+  color: #0d7045;
+  font-size: 24px;
+  line-height: 1;
+}
+.addArticle:hover {
+  border-color: var(--green);
+  background: #eef8f2;
+}
+.articleItems {
+  display: grid;
+  flex: 1;
+  grid-auto-rows: min-content;
+  align-content: start;
+  min-height: 180px;
+  gap: 7px;
+  overflow: auto;
+}
+.articleItem {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #26352f;
+  text-align: left;
+}
+.articleItem:hover {
+  background: #f6faf7;
+}
+.articleItem.active {
+  border-color: #b7ebd1;
+  background: #eef8f2;
+}
+.articleItem strong {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.articleItem span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.articleItem em {
+  color: #8a9790;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.globalError {
+  margin: 0 0 14px;
+  padding: 11px 14px;
+  border: 1px solid #efc9cc;
+  border-radius: 10px;
+  background: #fff7f7;
+  color: #a3242c;
+  font-size: 13px;
+  line-height: 1.55;
+}

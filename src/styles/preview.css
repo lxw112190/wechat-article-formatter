@@ -1,0 +1,64 @@
+﻿.previewPanel {
+  display: flex;
+  justify-content: center;
+  padding: 18px;
+  overflow: hidden;
+}
+.phoneShell {
+  width: min(100%, 430px);
+  height: calc(100vh - 132px);
+  min-height: 720px;
+  max-height: 920px;
+  overflow: hidden;
+  border: 10px solid #101614;
+  border-radius: 28px;
+  background: #101614;
+  box-shadow: 0 28px 70px rgba(13, 20, 17, 0.24);
+}
+.phoneTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 16px;
+  color: #e6f0eb;
+  font-size: 13px;
+  font-weight: 750;
+}
+.wechatArticle {
+  height: calc(100% - 44px);
+  overflow: auto;
+  border-radius: 18px 18px 20px 20px;
+  background: #fff;
+  scrollbar-width: thin;
+}
+.articleHeader {
+  padding: 24px 22px 0;
+}
+.articleHeader h2 {
+  margin: 0 0 10px;
+  color: var(--article-heading);
+  font-size: 25px;
+  line-height: 1.3;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+.articleHeader p {
+  margin: 0 0 8px;
+  color: #7a8580;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.articleHeader div {
+  margin-bottom: 24px;
+  padding: 14px 15px;
+  border-left: 4px solid var(--article-accent);
+  border-radius: 6px;
+  background: var(--article-soft);
+  color: var(--article-heading);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.articleBody {
+  padding: 0 22px 34px;
+}

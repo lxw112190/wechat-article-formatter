@@ -1,0 +1,145 @@
+﻿@media (max-width: 1500px) {
+  .appGrid {
+    grid-template-columns: minmax(190px, 0.32fr) minmax(520px, 1.2fr) minmax(320px, 0.78fr);
+  }
+  .publishPanel {
+    grid-column: 1 / -1;
+  }
+  .themeGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .preflightList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .markdownInput {
+    min-height: 520px;
+  }
+}
+@media (max-width: 1000px) {
+  .appGrid {
+    grid-template-columns: minmax(180px, 0.4fr) 1fr;
+  }
+  .previewPanel,
+  .publishPanel {
+    grid-column: 1 / -1;
+  }
+  .editorWorkspace {
+    display: block;
+  }
+  .editorOutline {
+    position: absolute;
+    z-index: 25;
+    top: 0;
+    left: 0;
+    width: min(280px, calc(100% - 12px));
+    max-height: min(70vh, 560px);
+    box-shadow: 0 18px 48px rgba(23, 42, 32, 0.2);
+  }
+  .outlineItems {
+    max-height: min(calc(70vh - 80px), 480px);
+  }
+  .phoneShell {
+    height: 760px;
+  }
+  .themeGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .workspace {
+    padding: 14px;
+  }
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .topbar h1 {
+    font-size: 28px;
+  }
+  .topbarActions {
+    width: 100%;
+  }
+  .topbarActions button {
+    flex: 1;
+  }
+  .appGrid {
+    grid-template-columns: 1fr;
+  }
+  .articleList,
+  .previewPanel,
+  .publishPanel {
+    grid-column: auto;
+  }
+  .articleList {
+    min-height: 0;
+  }
+  .articleItems {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+  }
+  .themeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .preflightList {
+    grid-template-columns: 1fr;
+  }
+  .previewPanel {
+    padding: 12px;
+  }
+  .phoneShell {
+    width: 100%;
+    min-height: 640px;
+    height: 78vh;
+    border-width: 7px;
+    border-radius: 22px;
+  }
+  .markdownInput {
+    min-height: 430px;
+  }
+}
+@media (max-width: 480px) {
+  .formatMenu {
+    grid-template-columns: 1fr;
+    width: 250px;
+  }
+  .formatGroup + .formatGroup {
+    border-left: 0;
+    border-top: 1px solid #edf2ef;
+  }
+  .panelHeadActions {
+    justify-content: flex-start;
+  }
+  .editorPanel .panelHead {
+    flex-direction: column;
+  }
+  .imageManagerHead {
+    flex-direction: column;
+  }
+  .imageManagerHead > button {
+    width: 100%;
+  }
+  .imageAssetCard {
+    grid-template-columns: 1fr;
+  }
+  .imageAssetCard > img {
+    width: 100%;
+    height: 180px;
+  }
+  .imageAssetInfo label {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .historyOverlay {
+    padding: 12px;
+  }
+  .historyDialog {
+    max-height: calc(100vh - 24px);
+    padding: 16px;
+  }
+  .historyItem {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .historyItem > button {
+    width: 100%;
+  }
+}

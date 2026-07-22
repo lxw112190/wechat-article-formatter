@@ -6,8 +6,8 @@
 
 👉 在线体验：https://wechat-article-formatter.lxw112190.workers.dev
 
-Author: 天天代码码天天  |  QQ: 819069052  
-QQ Group: C# 人工智能实践  |  群号: 758616458
+Author: 天天代码码天天 | QQ: 819069052<br>
+QQ Group: C# 人工智能实践 | 群号: 758616458
 
 ## 功能
 
@@ -23,8 +23,10 @@ QQ Group: C# 人工智能实践  |  群号: 758616458
 - 7 套排版主题：青绿、墨蓝、暖橙、酒红、紫灰、极简灰、湖蓝。
 - 文章库：新建、切换、自动保存、未保存提醒、历史版本恢复和删除文章。
 - 单篇 `.md` / `.markdown` 文件导入与导出；导入会创建新文章，不覆盖已有文章。
-- JSON 导出和导入，便于自行备份、迁移和恢复文章库。
+- 完整 ZIP 备份与恢复：同时保存文章、历史版本、设置和 IndexedDB 图片，并通过清单文件管理备份格式版本。
+- JSON 导出和导入继续保留，用于只包含文章文本的轻量兼容备份。
 - 导出完整 HTML 文件，文件包含文章标题和正文。
+- 打印 / 保存 PDF：生成独立的 A4 打印预览，保留当前主题、表格和预览图片，可用于定稿存档、审核、打印或另存为 PDF。
 
 ## 快速开始
 
@@ -45,10 +47,16 @@ npm run dev
 ## 常用命令
 
 ```bash
-npm run dev       # 本地开发
-npm run build     # 生成生产构建到 dist
-npm run preview   # 预览生产构建
-npm run lint      # TypeScript 类型检查
+npm run dev          # 本地开发
+npm run build        # 类型检查并生成生产构建到 dist
+npm run preview      # 预览生产构建
+npm run typecheck    # TypeScript 类型检查
+npm run lint         # ESLint 代码质量检查
+npm run lint:fix     # 自动修复可修复的 ESLint 问题
+npm run format       # 使用 Prettier 格式化项目
+npm run format:check # 检查格式但不修改文件
+npm run test         # 运行 Vitest 单元测试
+npm run check        # 执行全部质量检查和构建
 ```
 
 > **Windows PowerShell 用户**：若提示 `npm.ps1` 被执行策略阻止，将 `npm` 替换为 `npm.cmd` 即可。
@@ -57,11 +65,11 @@ npm run lint      # TypeScript 类型检查
 
 文章库使用浏览器的 `localStorage` 保存，数据只保留在当前浏览器和当前设备中。清理浏览器站点数据、使用无痕窗口或更换浏览器，都可能导致文章库不可见。
 
-建议定期点击“导出 JSON”下载备份文件。导入 JSON 时，应用会提示确认；确认后，导入的文章库会替换当前文章库。
+建议定期点击“完整备份 ZIP”。ZIP 中包含 `manifest.json`、文章库、历史版本、设置、每篇文章的 Markdown 文件和全部图片，可用于跨浏览器、跨设备完整迁移。恢复前会检查备份标识、格式版本和文件数量；高于当前应用支持版本的备份不会被强行导入。
 
-本地图片二进制保存在浏览器 IndexedDB 中，不会写入 JSON 或 `.md` 文件。更换设备、浏览器或清理站点数据前，请先在图片素材区下载需要保留的图片。
+恢复完整 ZIP 会替换当前文章库、历史版本、设置和图片素材。应用会先读取并校验整个备份；若写入浏览器存储失败，会显示 IndexedDB、权限或存储空间不足等具体提示，并尽量回滚到恢复前的图片数据。
 
-导出的 JSON 文件可以由用户自行保存、同步到网盘或提交到私有仓库。不要把含有未公开文章的备份文件提交到公开 GitHub 仓库。
+JSON 和单篇 `.md` 文件不包含图片二进制，仅适合轻量导出或兼容旧版本。完整 ZIP、JSON 都可能包含未公开文章，请妥善保存，不要提交到公开 GitHub 仓库。
 
 ## 公众号发布流程
 
@@ -74,6 +82,16 @@ npm run lint      # TypeScript 类型检查
 
 当前版本不直接调用微信公众号接口，也不会自动发布文章。
 
+## 打印与保存 PDF
+
+点击顶部或“发布准备”面板中的“打印 / 保存 PDF”，工具会打开独立的 A4 打印预览。确认内容和分页后，再次点击“打印 / 保存 PDF”：
+
+1. 需要纸质文件时，选择实际打印机。
+2. 需要 PDF 文件时，在系统打印对话框中选择“另存为 PDF”或“Microsoft Print to PDF”。
+3. 建议开启“背景图形”，以完整保留主题色、引用块和表格底色。
+
+打印版本会使用当前排版主题和本地图片预览，不会把 Base64 图片写入文章或备份文件。浏览器可能会拦截打印预览窗口，遇到提示时请允许本站打开弹出窗口。
+
 ## 技术栈
 
 - Vite
@@ -81,8 +99,11 @@ npm run lint      # TypeScript 类型检查
 - TypeScript
 - Marked（CommonMark / GFM 解析）
 - DOMPurify（HTML 安全清理）
+- JSZip（版本化完整备份与恢复）
 - IndexedDB（本地图片 Blob 存储）
-- 原生 CSS
+- Vitest（纯函数单元测试）
+- ESLint + Prettier（代码质量与格式）
+- 模块化原生 CSS
 - Browser `localStorage`
 
 ## 截图
