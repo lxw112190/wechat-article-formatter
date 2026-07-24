@@ -134,11 +134,20 @@ export function AppView(props: AppViewProps) {
           fieldCopied={clipboard.fieldCopied}
           themeId={presentation.themeId}
           themes={presentation.themes}
+          currentTheme={presentation.theme}
+          isCustomTheme={presentation.isCustomTheme}
+          themeMessage={presentation.themeMessage}
           preflightIssues={presentation.preflightIssues}
           localImageCount={presentation.localAssets.length}
           onCopyField={(key, value) => void clipboard.copyPlainField(key, value)}
           onPrint={presentation.printOrSavePdf}
           onThemeChange={presentation.setThemeId}
+          onCreateThemeDraft={presentation.createThemeDraft}
+          onEditThemeDraft={presentation.editThemeDraft}
+          onSaveTheme={presentation.saveTheme}
+          onDeleteTheme={presentation.deleteCurrentTheme}
+          onExportTheme={presentation.exportCurrentTheme}
+          onImportTheme={presentation.importTheme}
           onCopy={() => void clipboard.copyForWechat()}
         />
       </section>

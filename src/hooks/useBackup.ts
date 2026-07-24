@@ -5,20 +5,22 @@ import { downloadBlob } from "../app/formatters";
 import { getAllImageAssets, replaceAllImageAssets } from "../imageAssets";
 import { createCompleteBackup, getBackupFilename, readCompleteBackup } from "../services/backup";
 import { saveArticleData } from "../services/articleStorage";
-import type { Article, ArticleVersion } from "../types";
+import { defaultTheme, themes as builtInThemes } from "../themes/themes";
+import type { Article, ArticleVersion, Theme } from "../types";
 
 type UseBackupOptions = {
   articles: Article[];
   history: ArticleVersion[];
   themeId: string;
+  customThemes: Theme[];
   syncScroll: boolean;
   outlineOpen: boolean;
   replaceLibrary: (articles: Article[], history: ArticleVersion[]) => void;
   setThemeId: (themeId: string) => void;
+  replaceCustomThemes: (themes: Theme[]) => void;
   setSyncScroll: (enabled: boolean) => void;
   setOutlineOpen: (open: boolean) => void;
   refreshAssets: () => void;
-  validThemeIds: string[];
   onError: (message: string) => void;
 };
 
@@ -26,14 +28,15 @@ export function useBackup({
   articles,
   history,
   themeId,
+  customThemes,
   syncScroll,
   outlineOpen,
   replaceLibrary,
   setThemeId,
+  replaceCustomThemes,
   setSyncScroll,
   setOutlineOpen,
   refreshAssets,
-  validThemeIds,
   onError,
 }: UseBackupOptions) {
   const [backupMessage, setBackupMessage] = useState("");
@@ -43,7 +46,10 @@ export function useBackup({
     onError("");
     try {
       const assets = await getAllImageAssets();
-      const bytes = await createCompleteBackup({ articles, history, assets, settings: { themeId, syncScroll, outlineOpen } }, appVersion);
+      const bytes = await createCompleteBackup(
+        { articles, history, assets, settings: { themeId, syncScroll, outlineOpen, customThemes } },
+        appVersion,
+      );
       downloadBlob(new Blob([bytes.slice().buffer], { type: "application/zip" }), getBackupFilename());
       setBackupMessage(`备份完成 · ${articles.length} 篇 / ${assets.length} 张图`);
     } catch (error) {
@@ -63,7 +69,7 @@ export function useBackup({
       const restored = await readCompleteBackup(file);
       if (
         !window.confirm(
-          `完整备份校验通过：\n\n• ${restored.articles.length} 篇文章\n• ${restored.history.length} 条历史版本\n• ${restored.assets.length} 张图片\n• 备份版本 V${restored.manifest.version}\n\n恢复将替换当前文章、历史和图片素材，是否继续？`,
+          `完整备份校验通过：\n\n• ${restored.articles.length} 篇文章\n• ${restored.history.length} 条历史版本\n• ${restored.assets.length} 张图片\n• ${restored.settings.customThemes.length} 个自定义主题\n• 备份版本 V${restored.manifest.version}\n\n恢复将替换当前文章、历史、图片素材和自定义主题，是否继续？`,
         )
       ) {
         setBackupMessage("");
@@ -82,7 +88,11 @@ export function useBackup({
       }
 
       replaceLibrary(restored.articles, restored.history);
-      setThemeId(validThemeIds.includes(restored.settings.themeId) ? restored.settings.themeId : validThemeIds[0]);
+      replaceCustomThemes(restored.settings.customThemes);
+      const restoredThemeExists =
+        builtInThemes.some((theme) => theme.id === restored.settings.themeId) ||
+        restored.settings.customThemes.some((theme) => theme.id === restored.settings.themeId);
+      setThemeId(restoredThemeExists ? restored.settings.themeId : defaultTheme.id);
       setSyncScroll(restored.settings.syncScroll);
       setOutlineOpen(restored.settings.outlineOpen);
       refreshAssets();

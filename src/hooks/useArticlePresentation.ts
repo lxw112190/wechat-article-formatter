@@ -1,12 +1,19 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { CSSProperties } from "react";
 import type { ImageAsset } from "../imageAssets";
 import { getLocalAssetReferences } from "../markdown/assets";
 import { getMarkdownOutline } from "../markdown/outline";
 import { inspectBeforePublish } from "../markdown/preflight";
-import { buildCopyHtml, buildCopyPlainText, buildExportHtml, renderMarkdown, stripMarkdown } from "../markdown/renderMarkdown";
+import {
+  buildCopyHtml,
+  buildCopyPlainText,
+  buildExportHtml,
+  getThemeFontFamily,
+  renderMarkdown,
+  stripMarkdown,
+} from "../markdown/renderMarkdown";
 import { openPrintPreview } from "../services/print";
-import { themes } from "../themes/themes";
+import { useThemeLibrary } from "./useThemeLibrary";
 
 type UseArticlePresentationOptions = {
   title: string;
@@ -14,11 +21,12 @@ type UseArticlePresentationOptions = {
   imageAssets: ImageAsset[];
   assetUrls: Record<string, string>;
   assetLibraryReady: boolean;
+  onError: (message: string) => void;
 };
 
 export function useArticlePresentation(options: UseArticlePresentationOptions) {
-  const [themeId, setThemeId] = useState(themes[0].id);
-  const theme = themes.find((item) => item.id === themeId) ?? themes[0];
+  const themeLibrary = useThemeLibrary(options.onError);
+  const { theme } = themeLibrary;
   const outline = useMemo(() => getMarkdownOutline(options.markdown), [options.markdown]);
   const bodyHtml = useMemo(() => renderMarkdown(options.markdown, theme, options.assetUrls), [options.markdown, theme, options.assetUrls]);
   const copyHtml = useMemo(() => buildCopyHtml(bodyHtml, theme), [bodyHtml, theme]);
@@ -34,7 +42,10 @@ export function useArticlePresentation(options: UseArticlePresentationOptions) {
   const themeVars = {
     "--article-accent": theme.accent,
     "--article-soft": theme.accentSoft,
-    "--article-heading": theme.heading,
+    "--article-heading": theme.headings.h1.color,
+    "--article-font": getThemeFontFamily(theme),
+    "--article-title-align": theme.headings.h1.align,
+    "--article-title-size": `${Math.min(36, theme.headings.h1.fontSize + 1)}px`,
   } as CSSProperties;
 
   function exportHtml() {
@@ -52,9 +63,7 @@ export function useArticlePresentation(options: UseArticlePresentationOptions) {
   }
 
   return {
-    themeId,
-    setThemeId,
-    themes,
+    ...themeLibrary,
     outline,
     bodyHtml,
     copyHtml,

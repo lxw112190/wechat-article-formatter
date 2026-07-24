@@ -1,8 +1,9 @@
 import JSZip from "jszip";
 import type { ImageAsset } from "../imageAssets";
 import { getLocalAssetReferences } from "../markdown/assets";
-import type { Article, ArticleVersion } from "../types";
+import type { Article, ArticleVersion, Theme } from "../types";
 import { normalizeArticles, normalizeHistory } from "./articleStorage";
+import { normalizeCustomThemes } from "./themeStorage";
 
 export const backupFormat = "wechat-article-backup";
 export const backupVersion = 3;
@@ -20,6 +21,7 @@ export type BackupSettings = {
   themeId: string;
   syncScroll: boolean;
   outlineOpen: boolean;
+  customThemes: Theme[];
 };
 
 type BackupImageEntry = {
@@ -292,6 +294,7 @@ export async function readCompleteBackup(
     themeId: typeof rawSettings.themeId === "string" ? rawSettings.themeId : "wechat",
     syncScroll: typeof rawSettings.syncScroll === "boolean" ? rawSettings.syncScroll : true,
     outlineOpen: typeof rawSettings.outlineOpen === "boolean" ? rawSettings.outlineOpen : true,
+    customThemes: normalizeCustomThemes(rawSettings.customThemes),
   };
 
   const assets: ImageAsset[] = [];

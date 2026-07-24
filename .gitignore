@@ -15,6 +15,9 @@ dist/
 .wrangler/
 outputs/
 
+# local promotional articles and related assets
+local-promotion/
+
 # tooling
 .openai/
 .agents/

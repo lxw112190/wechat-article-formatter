@@ -1,7 +1,54 @@
 import type { Theme } from "../types";
 
+const defaultHeadings: Theme["headings"] = {
+  h1: { fontSize: 24, color: "#0f5132", align: "left", decoration: "plain" },
+  h2: { fontSize: 20, color: "#0f5132", align: "left", decoration: "left-bar" },
+  h3: { fontSize: 17, color: "#0f5132", align: "left", decoration: "plain" },
+  h4: { fontSize: 16, color: "#0f5132", align: "left", decoration: "plain" },
+  h5: { fontSize: 15, color: "#0f5132", align: "left", decoration: "plain" },
+  h6: { fontSize: 14, color: "#667085", align: "left", decoration: "plain" },
+};
+
+function headingSet(
+  color: string,
+  overrides: Partial<Record<keyof Theme["headings"], Partial<Theme["headings"]["h1"]>>> = {},
+): Theme["headings"] {
+  return Object.fromEntries(
+    Object.entries(defaultHeadings).map(([level, config]) => [
+      level,
+      { ...config, color: level === "h6" ? config.color : color, ...overrides[level as keyof Theme["headings"]] },
+    ]),
+  ) as Theme["headings"];
+}
+
+const baseTheme: Omit<Theme, "id" | "name" | "accent" | "accentSoft" | "heading" | "text" | "muted" | "border" | "codeBg"> = {
+  fontFamily: "system",
+  bodyFontSize: 16,
+  bodyLineHeight: 1.85,
+  paragraphSpacing: 18,
+  bodyTextAlign: "left",
+  letterSpacing: 0,
+  firstLineIndent: 0,
+  headings: defaultHeadings,
+  unorderedListStyle: "disc",
+  orderedListStyle: "decimal",
+  listSpacing: 4,
+  strongStyle: "color",
+  linkStyle: "bottom-border",
+  blockquoteStyle: "left-bar",
+  codeStyle: "soft",
+  tableStyle: "soft-header",
+  imageStyle: "rounded",
+  dividerStyle: "solid",
+  imageSpacing: 24,
+  imageCaptionAlign: "center",
+  imageCaptionSize: 13,
+  radius: 6,
+};
+
 export const themes: Theme[] = [
   {
+    ...baseTheme,
     id: "wechat",
     name: "青绿",
     accent: "#12b76a",
@@ -11,8 +58,10 @@ export const themes: Theme[] = [
     muted: "#667085",
     border: "#b7ebd1",
     codeBg: "#f1fbf6",
+    headings: headingSet("#0f5132"),
   },
   {
+    ...baseTheme,
     id: "ink",
     name: "墨蓝",
     accent: "#2563eb",
@@ -22,8 +71,20 @@ export const themes: Theme[] = [
     muted: "#64748b",
     border: "#bfdbfe",
     codeBg: "#f5f7fb",
+    fontFamily: "serif",
+    headings: headingSet("#172554", {
+      h1: { align: "center" },
+      h2: { align: "center", decoration: "underline" },
+    }),
+    blockquoteStyle: "quote",
+    codeStyle: "dark",
+    tableStyle: "accent-header",
+    imageStyle: "shadow",
+    dividerStyle: "dashed",
+    radius: 4,
   },
   {
+    ...baseTheme,
     id: "warm",
     name: "暖橙",
     accent: "#d97706",
@@ -33,8 +94,20 @@ export const themes: Theme[] = [
     muted: "#756b61",
     border: "#fed7aa",
     codeBg: "#fffaf2",
+    bodyLineHeight: 1.9,
+    paragraphSpacing: 20,
+    headings: headingSet("#7c2d12", {
+      h1: { align: "center" },
+      h2: { decoration: "filled" },
+    }),
+    blockquoteStyle: "card",
+    codeStyle: "bordered",
+    tableStyle: "accent-header",
+    dividerStyle: "dotted",
+    radius: 10,
   },
   {
+    ...baseTheme,
     id: "rose",
     name: "酒红",
     accent: "#be123c",
@@ -44,8 +117,17 @@ export const themes: Theme[] = [
     muted: "#7f6670",
     border: "#fecdd3",
     codeBg: "#fff7f8",
+    fontFamily: "serif",
+    headings: headingSet("#881337", {
+      h1: { align: "center" },
+      h2: { decoration: "pill" },
+    }),
+    blockquoteStyle: "quote",
+    imageStyle: "shadow",
+    radius: 12,
   },
   {
+    ...baseTheme,
     id: "violet",
     name: "紫灰",
     accent: "#7c3aed",
@@ -55,8 +137,14 @@ export const themes: Theme[] = [
     muted: "#746b83",
     border: "#ddd6fe",
     codeBg: "#faf8ff",
+    headings: headingSet("#4c1d95", { h2: { decoration: "filled" } }),
+    blockquoteStyle: "card",
+    codeStyle: "dark",
+    imageStyle: "shadow",
+    radius: 8,
   },
   {
+    ...baseTheme,
     id: "slate",
     name: "极简灰",
     accent: "#475569",
@@ -66,8 +154,16 @@ export const themes: Theme[] = [
     muted: "#64748b",
     border: "#cbd5e1",
     codeBg: "#f8fafc",
+    bodyFontSize: 15,
+    headings: headingSet("#1e293b", { h2: { decoration: "plain" } }),
+    blockquoteStyle: "card",
+    codeStyle: "bordered",
+    tableStyle: "minimal",
+    imageStyle: "square",
+    radius: 0,
   },
   {
+    ...baseTheme,
     id: "teal",
     name: "湖蓝",
     accent: "#0f766e",
@@ -77,5 +173,20 @@ export const themes: Theme[] = [
     muted: "#617370",
     border: "#99f6e4",
     codeBg: "#f4fffd",
+    fontFamily: "rounded",
+    headings: headingSet("#134e4a", {
+      h1: { align: "center" },
+      h2: { align: "center", decoration: "underline" },
+    }),
+    blockquoteStyle: "card",
+    tableStyle: "accent-header",
+    imageStyle: "shadow",
+    radius: 10,
   },
 ];
+
+export const defaultTheme = themes[0];
+
+export function isBuiltInTheme(themeId: string) {
+  return themes.some((theme) => theme.id === themeId);
+}

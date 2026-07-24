@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import type { ImageAsset } from "../imageAssets";
+import { themes } from "../themes/themes";
 import { backupFormat, backupVersion, createCompleteBackup, readCompleteBackup } from "./backup";
 
 const article = {
@@ -30,7 +31,12 @@ describe("complete ZIP backup", () => {
         articles: [article],
         history: [{ id: "version-1", articleId: article.id, title: article.title, markdown: article.markdown, savedAt: article.updatedAt }],
         assets: [asset],
-        settings: { themeId: "ink", syncScroll: false, outlineOpen: true },
+        settings: {
+          themeId: "custom-team",
+          syncScroll: false,
+          outlineOpen: true,
+          customThemes: [{ ...themes[1], id: "custom-team", name: "团队主题" }],
+        },
       },
       "0.2.0",
     );
@@ -39,14 +45,21 @@ describe("complete ZIP backup", () => {
     expect(restored.manifest.version).toBe(backupVersion);
     expect(restored.articles).toEqual([article]);
     expect(restored.history).toHaveLength(1);
-    expect(restored.settings).toEqual({ themeId: "ink", syncScroll: false, outlineOpen: true });
+    expect(restored.settings.themeId).toBe("custom-team");
+    expect(restored.settings.customThemes).toHaveLength(1);
+    expect(restored.settings.customThemes[0].name).toBe("团队主题");
     expect(restored.assets[0].id).toBe(asset.id);
     expect(new Uint8Array(await restored.assets[0].blob.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
   });
 
   it("rejects backups from a newer format version", async () => {
     const bytes = await createCompleteBackup(
-      { articles: [article], history: [], assets: [], settings: { themeId: "wechat", syncScroll: true, outlineOpen: true } },
+      {
+        articles: [article],
+        history: [],
+        assets: [],
+        settings: { themeId: "wechat", syncScroll: true, outlineOpen: true, customThemes: [] },
+      },
       "0.2.0",
     );
     const zip = await JSZip.loadAsync(bytes);
@@ -59,7 +72,12 @@ describe("complete ZIP backup", () => {
 
   it("restores legacy V2 backups with capacity checks", async () => {
     const bytes = await createCompleteBackup(
-      { articles: [article], history: [], assets: [], settings: { themeId: "wechat", syncScroll: true, outlineOpen: true } },
+      {
+        articles: [article],
+        history: [],
+        assets: [],
+        settings: { themeId: "wechat", syncScroll: true, outlineOpen: true, customThemes: [] },
+      },
       "0.2.0",
     );
     const zip = await JSZip.loadAsync(bytes);
@@ -71,11 +89,17 @@ describe("complete ZIP backup", () => {
     const restored = await readCompleteBackup(legacyBytes);
     expect(restored.articles).toEqual([article]);
     expect(restored.manifest.version).toBe(2);
+    expect(restored.settings.customThemes).toEqual([]);
   });
 
   it("rejects a payload whose SHA-256 no longer matches the manifest", async () => {
     const bytes = await createCompleteBackup(
-      { articles: [article], history: [], assets: [], settings: { themeId: "wechat", syncScroll: true, outlineOpen: true } },
+      {
+        articles: [article],
+        history: [],
+        assets: [],
+        settings: { themeId: "wechat", syncScroll: true, outlineOpen: true, customThemes: [] },
+      },
       "0.2.0",
     );
     const zip = await JSZip.loadAsync(bytes);
@@ -87,7 +111,12 @@ describe("complete ZIP backup", () => {
 
   it("rejects compressed and uncompressed data above configured safety limits", async () => {
     const bytes = await createCompleteBackup(
-      { articles: [article], history: [], assets: [], settings: { themeId: "wechat", syncScroll: true, outlineOpen: true } },
+      {
+        articles: [article],
+        history: [],
+        assets: [],
+        settings: { themeId: "wechat", syncScroll: true, outlineOpen: true, customThemes: [] },
+      },
       "0.2.0",
     );
     await expect(readCompleteBackup(bytes, { maxCompressedBytes: bytes.byteLength - 1 })).rejects.toThrow("压缩包超过容量上限");

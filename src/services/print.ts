@@ -1,17 +1,10 @@
-export type PrintTheme = {
-  name: string;
-  accent: string;
-  accentSoft: string;
-  heading: string;
-  text: string;
-  muted: string;
-  border: string;
-};
+import { getThemeFontFamily } from "../markdown/renderMarkdown";
+import type { Theme } from "../types";
 
 export type PrintDocumentOptions = {
   title: string;
   bodyHtml: string;
-  theme: PrintTheme;
+  theme: Theme;
   exportedAt?: Date;
 };
 
@@ -46,6 +39,7 @@ export function buildPrintDocument({ title, bodyHtml, theme, exportedAt = new Da
   const safeThemeName = escapeHtml(theme.name);
   const printBody = preparePrintBody(bodyHtml, title);
   const exportTime = escapeHtml(formatExportTime(exportedAt));
+  const fontFamily = getThemeFontFamily(theme);
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -57,7 +51,7 @@ export function buildPrintDocument({ title, bodyHtml, theme, exportedAt = new Da
     :root { color-scheme: light; }
     * { box-sizing: border-box; }
     html { background: #edf1ef; }
-    body { margin: 0; color: ${theme.text}; background: #edf1ef; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+    body { margin: 0; color: ${theme.text}; background: #edf1ef; font-family: ${fontFamily}; }
     .print-toolbar { position: sticky; z-index: 10; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 10px 22px; border-bottom: 1px solid #d8e0dc; background: rgba(255,255,255,.96); box-shadow: 0 8px 24px rgba(24,41,33,.08); }
     .print-toolbar strong { display: block; color: #1e3028; font-size: 14px; }
     .print-toolbar span { display: block; margin-top: 3px; color: #66746d; font-size: 12px; line-height: 1.45; }
@@ -66,7 +60,7 @@ export function buildPrintDocument({ title, bodyHtml, theme, exportedAt = new Da
     .print-actions button.primary { border-color: ${theme.heading}; background: ${theme.heading}; color: #fff; }
     .print-sheet { width: min(210mm, calc(100% - 32px)); min-height: 297mm; margin: 24px auto 40px; padding: 18mm 16mm 20mm; background: #fff; box-shadow: 0 18px 56px rgba(29,43,35,.14); }
     .document-header { margin-bottom: 28px; padding-bottom: 18px; border-bottom: 2px solid ${theme.accent}; }
-    .document-header h1 { margin: 0 0 10px; color: ${theme.heading}; font-size: 28px; line-height: 1.35; font-weight: 800; letter-spacing: 0; }
+    .document-header h1 { margin: 0 0 10px; color: ${theme.headings.h1.color}; font-size: ${theme.headings.h1.fontSize}px; line-height: 1.35; font-weight: 800; letter-spacing: ${theme.letterSpacing}px; text-align: ${theme.headings.h1.align}; }
     .document-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: ${theme.muted}; font-size: 12px; line-height: 1.5; }
     .document-meta span:first-child { color: ${theme.accent}; font-weight: 750; }
     .document-body { overflow-wrap: anywhere; }

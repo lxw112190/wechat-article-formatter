@@ -38,6 +38,7 @@ export default function App() {
     imageAssets: images.imageAssets,
     assetUrls: images.assetUrls,
     assetLibraryReady: images.assetLibraryReady,
+    onError: setAppError,
   });
   const scroll = useSyncScroll({ markdown: library.markdown, outline: presentation.outline, textareaRef: editor.textareaRef });
   const clipboard = useClipboard({
@@ -62,6 +63,7 @@ export default function App() {
     articles: library.getCurrentArticles(),
     history: history.history,
     themeId: presentation.themeId,
+    customThemes: presentation.customThemes,
     syncScroll: scroll.syncScroll,
     outlineOpen: scroll.outlineOpen,
     replaceLibrary: (articles, versions) => {
@@ -69,10 +71,10 @@ export default function App() {
       library.replaceLibrary(articles, versions);
     },
     setThemeId: presentation.setThemeId,
+    replaceCustomThemes: presentation.replaceCustomThemes,
     setSyncScroll: scroll.setSyncScroll,
     setOutlineOpen: scroll.setOutlineOpen,
     refreshAssets: images.refreshAssets,
-    validThemeIds: presentation.themes.map((item) => item.id),
     onError: setAppError,
   });
   const currentHistory = history.history

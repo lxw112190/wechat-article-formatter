@@ -31,6 +31,7 @@
   border-radius: 18px 18px 20px 20px;
   background: #fff;
   scrollbar-width: thin;
+  font-family: var(--article-font);
 }
 .articleHeader {
   padding: 24px 22px 0;
@@ -38,10 +39,11 @@
 .articleHeader h2 {
   margin: 0 0 10px;
   color: var(--article-heading);
-  font-size: 25px;
+  font-size: var(--article-title-size);
   line-height: 1.3;
   font-weight: 850;
   letter-spacing: 0;
+  text-align: var(--article-title-align);
 }
 .articleHeader p {
   margin: 0 0 8px;

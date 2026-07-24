@@ -6,3 +6,4 @@ export { HistoryDialog } from "./HistoryDialog";
 export { PhonePreview } from "./PhonePreview";
 export { PublishPanel } from "./PublishPanel";
 export { StatusMessage } from "./StatusMessage";
+export { ThemeEditorDialog } from "./ThemeEditorDialog";
