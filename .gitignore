@@ -28,3 +28,7 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+.dev.vars*
+!.dev.vars.example
+!.env.example
