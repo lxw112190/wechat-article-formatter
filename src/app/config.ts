@@ -1,6 +1,6 @@
 import type { Article } from "../types";
 
-export const appVersion = "0.2.0";
+export const appVersion = "0.3.1";
 export const maxVersionsPerArticle = 30;
 
 const starterMarkdown = `# 一篇公众号文章，从草稿到可发布
