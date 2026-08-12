@@ -55,6 +55,23 @@
   display: flex;
   gap: 6px;
 }
+.articleFilters {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.articleFilters input,
+.articleFilters select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: #26352f;
+  padding: 0 10px;
+  font-size: 12px;
+}
 .addArticle {
   width: 34px;
   height: 34px;
@@ -64,6 +81,20 @@
   color: #0d7045;
   font-size: 24px;
   line-height: 1;
+}
+.trashArticle {
+  min-height: 34px;
+  border: 1px solid #b9c8c0;
+  border-radius: 8px;
+  background: #f8fbf9;
+  color: #52615a;
+  padding: 0 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.trashArticle:hover {
+  border-color: var(--green);
+  color: #0d7045;
 }
 .addArticle:hover {
   border-color: var(--green);
@@ -79,15 +110,14 @@
   overflow: auto;
 }
 .articleItem {
-  display: grid;
-  gap: 6px;
+  position: relative;
+  display: flex;
   width: 100%;
-  padding: 12px;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   color: #26352f;
-  text-align: left;
 }
 .articleItem:hover {
   background: #f6faf7;
@@ -96,14 +126,25 @@
   border-color: #b7ebd1;
   background: #eef8f2;
 }
-.articleItem strong {
+.articleSelect {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 34px 12px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.articleSelect strong {
   overflow: hidden;
   font-size: 14px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.articleItem span {
+.articleSelect span {
   display: -webkit-box;
   overflow: hidden;
   color: var(--muted);
@@ -112,10 +153,39 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.articleItem em {
+.articleSelect em {
   color: #8a9790;
   font-size: 11px;
   font-style: normal;
+}
+.pinArticle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #8a9790;
+  font-size: 18px;
+}
+.pinArticle:hover,
+.pinArticle.active {
+  background: #fff5d6;
+  color: #a86b00;
+}
+.articleEmpty {
+  padding: 28px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.articleCount {
+  margin: 10px 0 0;
+  color: #8a9790;
+  font-size: 11px;
+  text-align: right;
 }
 
 .globalError {

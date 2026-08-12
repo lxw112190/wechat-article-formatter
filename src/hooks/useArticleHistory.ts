@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { maxVersionsPerArticle } from "../app/config";
-import { historyStorageKey, loadHistory } from "../services/articleStorage";
+import { downloadBlob } from "../app/formatters";
+import { loadHistoryState, repairHistory, saveHistoryData } from "../services/articleStorage";
 import type { Article, ArticleVersion } from "../types";
 
 type UseArticleHistoryOptions = {
@@ -8,11 +9,14 @@ type UseArticleHistoryOptions = {
 };
 
 export function useArticleHistory({ onStorageError }: UseArticleHistoryOptions) {
-  const [history, setHistory] = useState<ArticleVersion[]>(() => loadHistory(window.localStorage));
+  const initial = useMemo(() => loadHistoryState(window.localStorage), []);
+  const [history, setHistory] = useState<ArticleVersion[]>(initial.history);
+  const [storageRecovery, setStorageRecovery] = useState(initial.recovery);
 
   useEffect(() => {
+    if (storageRecovery) return;
     try {
-      window.localStorage.setItem(historyStorageKey, JSON.stringify(history));
+      saveHistoryData(window.localStorage, history);
     } catch (error) {
       onStorageError(
         error instanceof DOMException && error.name === "QuotaExceededError"
@@ -20,7 +24,7 @@ export function useArticleHistory({ onStorageError }: UseArticleHistoryOptions) 
           : "历史版本保存失败：无法写入浏览器本地存储。",
       );
     }
-  }, [history, onStorageError]);
+  }, [history, onStorageError, storageRecovery]);
 
   function recordVersion(article: Article) {
     setHistory((items) => {
@@ -42,10 +46,33 @@ export function useArticleHistory({ onStorageError }: UseArticleHistoryOptions) 
     setHistory((items) => items.filter((version) => version.articleId !== articleId));
   }
 
+  function downloadCorruptHistory() {
+    if (!storageRecovery) return;
+    downloadBlob(new Blob([storageRecovery.raw], { type: "application/json;charset=utf-8" }), "wechat-corrupt-history.json");
+  }
+
+  function repairCorruptHistory() {
+    if (!storageRecovery) return false;
+    const repaired = repairHistory(storageRecovery.raw);
+    if (!repaired) return false;
+    setHistory(repaired);
+    setStorageRecovery(null);
+    return true;
+  }
+
+  function discardCorruptHistory() {
+    setHistory([]);
+    setStorageRecovery(null);
+  }
+
   return {
     history,
     recordVersion,
     removeArticleHistory,
     replaceHistory: setHistory,
+    storageRecovery,
+    downloadCorruptHistory,
+    repairCorruptHistory,
+    discardCorruptHistory,
   };
 }

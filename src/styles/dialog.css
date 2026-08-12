@@ -108,3 +108,145 @@
   line-height: 1.7;
   text-align: center;
 }
+.libraryDialog,
+.storageDialog,
+.recoveryDialog {
+  width: min(680px, calc(100vw - 32px));
+}
+.dialogHint {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.trashList,
+.recoveryDialog {
+  display: grid;
+  gap: 10px;
+}
+.trashItem,
+.recoveryItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfdfb;
+}
+.trashItem > div:first-child,
+.recoveryItem > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.trashItem span,
+.recoveryItem span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+}
+.trashActions,
+.recoveryActions,
+.storageActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.trashActions button,
+.recoveryActions button,
+.storageActions button,
+.dialogFooter button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 11px;
+}
+.dangerText {
+  color: #b4232b;
+}
+.dialogFooter {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+.emptyDialogState {
+  padding: 40px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  text-align: center;
+}
+.storageStats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.storageStats > div {
+  display: grid;
+  gap: 4px;
+  padding: 13px 10px;
+  border-radius: 9px;
+  background: #f3f8f5;
+  text-align: center;
+}
+.storageStats strong {
+  color: #0d7045;
+  font-size: 22px;
+}
+.storageStats span,
+.storageDetails span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.storageDetails {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 20px;
+}
+.storageDetails p {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  padding: 9px 0;
+  border-bottom: 1px solid #edf2ef;
+}
+.storageDetails strong {
+  font-size: 13px;
+}
+.storageMeter {
+  height: 8px;
+  overflow: hidden;
+  margin: 16px 0;
+  border-radius: 999px;
+  background: #e7eeea;
+}
+.storageMeter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+.storageMessage {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #eef8f2;
+  color: #0d7045;
+  font-size: 13px;
+}
+.storageActions {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.recoveryOverlay {
+  z-index: 1000;
+}
+.recoveryItem {
+  align-items: flex-start;
+  flex-direction: column;
+}

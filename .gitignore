@@ -17,6 +17,8 @@ outputs/
 
 # local promotional articles and related assets
 local-promotion/
+test-results/
+playwright-report/
 
 # tooling
 .openai/

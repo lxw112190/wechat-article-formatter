@@ -2,10 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import { initialArticles } from "../app/config";
 import { downloadBlob } from "../app/formatters";
-import { deleteUnusedImageAssets, describeStorageError } from "../imageAssets";
+import { cloneArticleImageAssets, deleteUnusedImageAssets, describeStorageError } from "../imageAssets";
 import { getReferencedAssetIds } from "../markdown/assets";
-import { articleStorageKey, getMarkdownFilename, getMarkdownTitle, loadArticles, parseLegacyLibrary } from "../services/articleStorage";
-import type { Article, ArticleVersion } from "../types";
+import {
+  getMarkdownFilename,
+  getMarkdownTitle,
+  loadArticleLibrary,
+  parseLegacyLibrary,
+  repairArticleLibrary,
+  saveLibraryData,
+} from "../services/articleStorage";
+import type { Article, ArticleVersion, DeletedArticle } from "../types";
+
+export type ArticleSort = "updated-desc" | "updated-asc" | "title";
 
 type UseArticleLibraryOptions = {
   history: ArticleVersion[];
@@ -16,11 +25,15 @@ type UseArticleLibraryOptions = {
 };
 
 export function useArticleLibrary({ history, recordVersion, removeArticleHistory, replaceHistory, onError }: UseArticleLibraryOptions) {
-  const initial = useMemo(() => loadArticles(window.localStorage, initialArticles), []);
-  const [articles, setArticles] = useState(initial);
-  const [activeId, setActiveId] = useState(initial[0]?.id ?? "");
-  const [markdown, setMarkdown] = useState(initial[0]?.markdown ?? "");
-  const [title, setTitle] = useState(initial[0]?.title ?? "");
+  const initial = useMemo(() => loadArticleLibrary(window.localStorage, initialArticles), []);
+  const [articles, setArticles] = useState(initial.data.articles);
+  const [trash, setTrash] = useState<DeletedArticle[]>(initial.data.trash);
+  const [storageRecovery, setStorageRecovery] = useState(initial.recovery);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [articleSort, setArticleSort] = useState<ArticleSort>("updated-desc");
+  const [activeId, setActiveId] = useState(initial.data.articles[0]?.id ?? "");
+  const [markdown, setMarkdown] = useState(initial.data.articles[0]?.markdown ?? "");
+  const [title, setTitle] = useState(initial.data.articles[0]?.title ?? "");
   const [saved, setSaved] = useState("立即保存");
   const [storageError, setStorageError] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("");
@@ -29,10 +42,23 @@ export function useArticleLibrary({ history, recordVersion, removeArticleHistory
   const activeArticle = articles.find((article) => article.id === activeId);
   const isDirty = Boolean(activeArticle && (activeArticle.title !== title || activeArticle.markdown !== markdown));
   const hasUnsavedChanges = isDirty || storageError;
+  const visibleArticles = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    const filtered = query
+      ? articles.filter((article) => `${article.title}\n${article.markdown}`.toLocaleLowerCase().includes(query))
+      : articles;
+    return [...filtered].sort((left, right) => {
+      if (Boolean(left.pinned) !== Boolean(right.pinned)) return left.pinned ? -1 : 1;
+      if (articleSort === "title") return left.title.localeCompare(right.title, "zh-CN");
+      const difference = Date.parse(left.updatedAt) - Date.parse(right.updatedAt);
+      return articleSort === "updated-asc" ? difference : -difference;
+    });
+  }, [articleSort, articles, searchQuery]);
 
   useEffect(() => {
+    if (storageRecovery) return;
     try {
-      window.localStorage.setItem(articleStorageKey, JSON.stringify(articles));
+      saveLibraryData(window.localStorage, articles, trash);
       setStorageError(false);
     } catch (error) {
       setStorageError(true);
@@ -43,14 +69,14 @@ export function useArticleLibrary({ history, recordVersion, removeArticleHistory
           : "文章自动保存失败：无法写入浏览器本地存储。请导出完整 ZIP 备份后刷新页面重试。",
       );
     }
-  }, [articles, onError]);
+  }, [articles, onError, storageRecovery, trash]);
 
   function persistCurrentArticle(source: "手动保存" | "自动保存" = "手动保存") {
     const current = articles.find((article) => article.id === activeId);
     if (!current) return;
     if (current.title === title && current.markdown === markdown) {
       try {
-        window.localStorage.setItem(articleStorageKey, JSON.stringify(articles));
+        saveLibraryData(window.localStorage, articles, trash);
         setStorageError(false);
         setSaved("已保存");
       } catch (error) {
@@ -97,23 +123,87 @@ export function useArticleLibrary({ history, recordVersion, removeArticleHistory
     setSaved("立即保存");
   }
 
+  async function duplicateArticle() {
+    if (isDirty) persistCurrentArticle("自动保存");
+    const current = getCurrentArticles().find((article) => article.id === activeId);
+    if (!current) return;
+    const duplicatedId = crypto.randomUUID();
+    try {
+      const cloned = await cloneArticleImageAssets(current.id, duplicatedId, current.markdown);
+      const duplicated: Article = {
+        ...current,
+        id: duplicatedId,
+        title: `${current.title || "未命名文章"} 副本`,
+        markdown: cloned.markdown,
+        updatedAt: new Date().toISOString(),
+        pinned: false,
+      };
+      setArticles((items) => [duplicated, ...items]);
+      setActiveId(duplicated.id);
+      setTitle(duplicated.title);
+      setMarkdown(duplicated.markdown);
+      setSaved(cloned.assets.length ? `副本已创建 · ${cloned.assets.length} 张图片` : "副本已创建");
+    } catch (error) {
+      onError(describeStorageError(error, "复制文章图片"));
+    }
+  }
+
+  function togglePinned(articleId: string) {
+    setArticles((items) => items.map((item) => (item.id === articleId ? { ...item, pinned: !item.pinned } : item)));
+  }
+
   function deleteArticle() {
-    const current = articles.find((article) => article.id === activeId);
-    if (!current || !window.confirm(`确定删除“${current.title || "未命名文章"}”吗？`)) return;
+    const current = getCurrentArticles().find((article) => article.id === activeId);
+    if (!current || !window.confirm(`将“${current.title || "未命名文章"}”移入回收站吗？可稍后恢复。`)) return;
+    if (isDirty) recordVersion(articles.find((article) => article.id === activeId) ?? current);
     const remaining = articles.filter((article) => article.id !== activeId);
-    const remainingHistory = history.filter((version) => version.articleId !== activeId);
-    const referencedIds = getReferencedAssetIds([
-      ...remaining.map((article) => article.markdown),
-      ...remainingHistory.map((version) => version.markdown),
-    ]);
-    void deleteUnusedImageAssets(referencedIds).catch((error) => onError(describeStorageError(error, "清理未使用图片")));
+    setTrash((items) => [{ ...current, deletedAt: new Date().toISOString() }, ...items.filter((item) => item.id !== current.id)]);
     setArticles(remaining);
-    removeArticleHistory(activeId);
     const next = remaining[0];
     setActiveId(next?.id ?? "");
     setTitle(next?.title ?? "");
     setMarkdown(next?.markdown ?? "");
     setSaved("立即保存");
+  }
+
+  function restoreFromTrash(articleId: string) {
+    const article = trash.find((item) => item.id === articleId);
+    if (!article) return;
+    if (isDirty) persistCurrentArticle("自动保存");
+    const { deletedAt: _deletedAt, ...restored } = article;
+    const restoredArticle = { ...restored, updatedAt: new Date().toISOString() };
+    setTrash((items) => items.filter((item) => item.id !== articleId));
+    setArticles((items) => [restoredArticle, ...items]);
+    setActiveId(restoredArticle.id);
+    setTitle(restoredArticle.title);
+    setMarkdown(restoredArticle.markdown);
+    setSaved("已从回收站恢复");
+  }
+
+  function cleanupUnusedAssets(nextArticles: Article[], nextTrash: DeletedArticle[], removedArticleIds: Set<string>) {
+    removedArticleIds.forEach(removeArticleHistory);
+    const remainingHistory = history.filter((version) => !removedArticleIds.has(version.articleId));
+    const referencedIds = getReferencedAssetIds([
+      ...nextArticles.map((article) => article.markdown),
+      ...nextTrash.map((article) => article.markdown),
+      ...remainingHistory.map((version) => version.markdown),
+    ]);
+    void deleteUnusedImageAssets(referencedIds).catch((error) => onError(describeStorageError(error, "清理未使用图片")));
+  }
+
+  function permanentlyDeleteArticle(articleId: string) {
+    const article = trash.find((item) => item.id === articleId);
+    if (!article || !window.confirm(`彻底删除“${article.title || "未命名文章"}”吗？正文、历史和未使用图片将无法恢复。`)) return;
+    const nextTrash = trash.filter((item) => item.id !== articleId);
+    setTrash(nextTrash);
+    cleanupUnusedAssets(articles, nextTrash, new Set([articleId]));
+  }
+
+  function emptyTrash() {
+    if (!trash.length || !window.confirm(`彻底清空回收站中的 ${trash.length} 篇文章吗？此操作无法撤销。`)) return;
+    const removedIds = new Set(trash.map((article) => article.id));
+    setTrash([]);
+    cleanupUnusedAssets(articles, [], removedIds);
   }
 
   function restoreVersion(version: ArticleVersion) {
@@ -175,8 +265,8 @@ export function useArticleLibrary({ history, recordVersion, removeArticleHistory
     if (!file) return;
     try {
       const imported = parseLegacyLibrary(JSON.parse(await file.text()));
-      if (!window.confirm(`将用导入的 ${imported.length} 篇文章替换当前文章库，是否继续？`)) return;
-      replaceLibrary(imported, []);
+      if (!window.confirm(`将用导入的 ${imported.articles.length} 篇文章替换当前文章库，是否继续？`)) return;
+      replaceLibrary(imported.articles, [], imported.trash);
       setSaved("已导入并保存");
       setLibraryMessage("已导入");
     } catch {
@@ -185,10 +275,11 @@ export function useArticleLibrary({ history, recordVersion, removeArticleHistory
     window.setTimeout(() => setLibraryMessage(""), 1800);
   }
 
-  function replaceLibrary(nextArticles: Article[], nextHistory?: ArticleVersion[]) {
+  function replaceLibrary(nextArticles: Article[], nextHistory?: ArticleVersion[], nextTrash: DeletedArticle[] = []) {
     const first = nextArticles[0];
     setArticles(nextArticles);
     if (nextHistory) replaceHistory(nextHistory);
+    setTrash(nextTrash);
     setActiveId(first?.id ?? "");
     setTitle(first?.title ?? "");
     setMarkdown(first?.markdown ?? "");
@@ -201,8 +292,32 @@ export function useArticleLibrary({ history, recordVersion, removeArticleHistory
     );
   }
 
+  function downloadCorruptLibrary() {
+    if (!storageRecovery) return;
+    downloadBlob(new Blob([storageRecovery.raw], { type: "application/json;charset=utf-8" }), "wechat-corrupt-article-library.json");
+  }
+
+  function repairCorruptLibrary() {
+    if (!storageRecovery) return false;
+    const repaired = repairArticleLibrary(storageRecovery.raw);
+    if (!repaired) return false;
+    replaceLibrary(repaired.articles, undefined, repaired.trash);
+    setStorageRecovery(null);
+    return true;
+  }
+
+  function discardCorruptLibrary() {
+    replaceLibrary(initialArticles, undefined, []);
+    setStorageRecovery(null);
+  }
+
   return {
     articles,
+    visibleArticles,
+    trash,
+    searchQuery,
+    articleSort,
+    storageRecovery,
     activeId,
     title,
     markdown,
@@ -215,9 +330,16 @@ export function useArticleLibrary({ history, recordVersion, removeArticleHistory
     setTitle,
     setMarkdown,
     setSaved,
+    setSearchQuery,
+    setArticleSort,
     selectArticle,
     createArticle,
+    duplicateArticle,
+    togglePinned,
     deleteArticle,
+    restoreFromTrash,
+    permanentlyDeleteArticle,
+    emptyTrash,
     restoreVersion,
     persistCurrentArticle,
     importMarkdown,
@@ -226,5 +348,8 @@ export function useArticleLibrary({ history, recordVersion, removeArticleHistory
     importLibrary,
     replaceLibrary,
     getCurrentArticles,
+    downloadCorruptLibrary,
+    repairCorruptLibrary,
+    discardCorruptLibrary,
   };
 }

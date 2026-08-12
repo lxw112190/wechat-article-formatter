@@ -1,3 +1,5 @@
+import { getLocalAssetReferences } from "./markdown/assets";
+
 export type ImageAsset = {
   id: string;
   articleId: string;
@@ -118,6 +120,33 @@ export async function deleteUnusedImageAssets(referencedIds: Set<string>) {
   const unused = assets.filter((asset) => !referencedIds.has(asset.id));
   await Promise.all(unused.map((asset) => deleteImageAsset(asset.id)));
   return unused.length;
+}
+
+export async function cloneArticleImageAssets(sourceArticleId: string, targetArticleId: string, markdown: string) {
+  const referencedIds = new Set(getLocalAssetReferences(markdown).map((reference) => reference.id));
+  const assets = (await getArticleImageAssets(sourceArticleId)).filter((asset) => referencedIds.has(asset.id));
+  let clonedMarkdown = markdown;
+  const clonedAssets: ImageAsset[] = [];
+  try {
+    for (const asset of assets) {
+      const id = buildAssetId();
+      const cloned: ImageAsset = {
+        ...asset,
+        id,
+        articleId: targetArticleId,
+        name: outputName(asset.name, id, asset.type),
+        blob: asset.blob.slice(0, asset.blob.size, asset.type),
+        createdAt: new Date().toISOString(),
+      };
+      await putImageAsset(cloned);
+      clonedAssets.push(cloned);
+      clonedMarkdown = clonedMarkdown.split(`asset://${asset.id}`).join(`asset://${id}`);
+    }
+  } catch (error) {
+    await Promise.all(clonedAssets.map((asset) => deleteImageAsset(asset.id))).catch(() => undefined);
+    throw error;
+  }
+  return { markdown: clonedMarkdown, assets: clonedAssets };
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number) {

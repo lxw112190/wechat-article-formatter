@@ -97,6 +97,14 @@
   }
 }
 @media (max-width: 480px) {
+  .storageStats,
+  .storageDetails {
+    grid-template-columns: 1fr 1fr;
+  }
+  .trashItem {
+    align-items: flex-start;
+    flex-direction: column;
+  }
   .formatMenu {
     grid-template-columns: 1fr;
     width: 250px;

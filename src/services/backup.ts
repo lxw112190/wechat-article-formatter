@@ -1,12 +1,12 @@
 import JSZip from "jszip";
 import type { ImageAsset } from "../imageAssets";
 import { getLocalAssetReferences } from "../markdown/assets";
-import type { Article, ArticleVersion, Theme } from "../types";
-import { normalizeArticles, normalizeHistory } from "./articleStorage";
+import type { Article, ArticleVersion, DeletedArticle, Theme } from "../types";
+import { normalizeArticles, normalizeHistory, normalizeTrash } from "./articleStorage";
 import { normalizeCustomThemes } from "./themeStorage";
 
 export const backupFormat = "wechat-article-backup";
-export const backupVersion = 3;
+export const backupVersion = 4;
 
 export const backupLimits = {
   maxCompressedBytes: 200 * 1024 * 1024,
@@ -51,6 +51,7 @@ export type BackupManifest = {
   exportedAt: string;
   articleCount: number;
   historyCount: number;
+  trashCount?: number;
   imageCount: number;
   articles: Array<{ articleId: string; imageIds: string[] }>;
   images: BackupImageEntry[];
@@ -60,6 +61,7 @@ export type BackupManifest = {
 export type CompleteBackupData = {
   articles: Article[];
   history: ArticleVersion[];
+  trash: DeletedArticle[];
   assets: ImageAsset[];
   settings: BackupSettings;
   manifest: BackupManifest;
@@ -147,7 +149,7 @@ function parseManifest(value: unknown): BackupManifest {
   if (!isRecord(value) || value.format !== backupFormat || typeof value.version !== "number") throw new Error("无法识别备份格式");
   if (value.version > backupVersion) throw new Error(`备份版本 V${value.version} 高于当前支持的 V${backupVersion}，请升级工具后恢复`);
   if (value.version < 2) throw new Error(`该 ZIP 使用不受支持的旧备份版本 V${value.version}`);
-  if (value.version === backupVersion && !Array.isArray(value.files)) throw new Error("备份清单缺少文件哈希信息");
+  if (value.version >= 3 && !Array.isArray(value.files)) throw new Error("备份清单缺少文件哈希信息");
   return { ...(value as unknown as BackupManifest), files: Array.isArray(value.files) ? (value.files as BackupFileEntry[]) : [] };
 }
 
@@ -224,8 +226,14 @@ export async function createCompleteBackup(data: Omit<CompleteBackupData, "manif
     await addVerifiedFile(zip, files, `markdown/${filename}`, new TextEncoder().encode(article.markdown));
   }
 
+  for (const [index, article] of data.trash.entries()) {
+    const filename = `${String(index + 1).padStart(3, "0")}-${safeFilename(article.title)}.md`;
+    await addVerifiedFile(zip, files, `trash-markdown/${filename}`, new TextEncoder().encode(article.markdown));
+  }
+
   await addVerifiedFile(zip, files, "articles.json", encodeJson({ version: backupVersion, articles: data.articles }));
   await addVerifiedFile(zip, files, "history.json", encodeJson({ version: backupVersion, history: data.history }));
+  await addVerifiedFile(zip, files, "trash.json", encodeJson({ version: backupVersion, trash: data.trash }));
   await addVerifiedFile(zip, files, "settings.json", encodeJson({ version: backupVersion, settings: data.settings }));
 
   const totalSize = files.reduce((total, entry) => total + entry.size, 0);
@@ -239,8 +247,9 @@ export async function createCompleteBackup(data: Omit<CompleteBackupData, "manif
     exportedAt: new Date().toISOString(),
     articleCount: data.articles.length,
     historyCount: data.history.length,
+    trashCount: data.trash.length,
     imageCount: data.assets.length,
-    articles: data.articles.map((article) => ({
+    articles: [...data.articles, ...data.trash].map((article) => ({
       articleId: article.id,
       imageIds: getLocalAssetReferences(article.markdown).map((item) => item.id),
     })),
@@ -277,14 +286,15 @@ export async function readCompleteBackup(
   }
   const manifest = parseManifest(manifestValue);
   if (!Array.isArray(manifest.images)) throw new Error("备份清单中的图片信息无效");
-  const verified =
-    manifest.version === backupVersion ? await verifyManifestFiles(zip, manifest, limits) : await readLegacyFiles(zip, manifest, limits);
+  const verified = manifest.version >= 3 ? await verifyManifestFiles(zip, manifest, limits) : await readLegacyFiles(zip, manifest, limits);
   const decodeJson = <T>(path: string) => JSON.parse(new TextDecoder().decode(verified.get(path))) as T;
 
   const articleValue = decodeJson<{ articles?: unknown }>("articles.json");
   const articles = normalizeArticles(articleValue.articles);
   if (!articles.length) throw new Error("备份中没有有效文章");
-  const articleIds = new Set(articles.map((article) => article.id));
+  const trashValue = manifest.version >= 4 ? decodeJson<{ trash?: unknown }>("trash.json") : { trash: [] };
+  const trash = normalizeTrash(trashValue.trash).filter((article) => !articles.some((active) => active.id === article.id));
+  const articleIds = new Set([...articles, ...trash].map((article) => article.id));
 
   const historyValue = decodeJson<{ history?: unknown }>("history.json");
   const history = normalizeHistory(historyValue.history).filter((version) => articleIds.has(version.articleId));
@@ -318,9 +328,14 @@ export async function readCompleteBackup(
     });
   }
 
-  if (manifest.articleCount !== articles.length || manifest.historyCount !== history.length || manifest.imageCount !== assets.length)
+  if (
+    manifest.articleCount !== articles.length ||
+    manifest.historyCount !== history.length ||
+    manifest.imageCount !== assets.length ||
+    (manifest.version >= 4 && manifest.trashCount !== trash.length)
+  )
     throw new Error("备份清单与实际内容数量不一致，文件可能不完整");
-  return { articles, history, assets, settings, manifest };
+  return { articles, history, trash, assets, settings, manifest };
 }
 
 export function getBackupFilename(date = new Date()) {

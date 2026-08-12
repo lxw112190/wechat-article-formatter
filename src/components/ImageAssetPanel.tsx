@@ -76,7 +76,7 @@ export function ImageAssetPanel(props: ImageAssetPanelProps) {
         </button>
       )}
       <p className="imageStorageHint">
-        图片不会进入 JSON 或 .md 文件；请在更换设备前下载需要的图片。复制正文时会使用图片 ID 占位，不嵌入 Base64。
+        图片不会进入 JSON 或 .md 文件，但会包含在完整 ZIP 备份中。复制正文时使用图片 ID 占位，不嵌入 Base64。
       </p>
     </section>
   );

@@ -48,6 +48,11 @@ export type Article = {
   title: string;
   markdown: string;
   updatedAt: string;
+  pinned?: boolean;
+};
+
+export type DeletedArticle = Article & {
+  deletedAt: string;
 };
 
 export type ArticleVersion = {

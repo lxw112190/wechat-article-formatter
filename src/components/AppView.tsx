@@ -8,6 +8,7 @@ import type { useClipboard } from "../hooks/useClipboard";
 import type { useImageAssets } from "../hooks/useImageAssets";
 import type { useMarkdownEditor } from "../hooks/useMarkdownEditor";
 import type { useSyncScroll } from "../hooks/useSyncScroll";
+import type { useStorageManager } from "../hooks/useStorageManager";
 import type { ArticleVersion } from "../types";
 import { ArticleEditor } from "./ArticleEditor";
 import { ArticleSidebar } from "./ArticleSidebar";
@@ -16,12 +17,17 @@ import { HistoryDialog } from "./HistoryDialog";
 import { PhonePreview } from "./PhonePreview";
 import { PublishPanel } from "./PublishPanel";
 import { StatusMessage } from "./StatusMessage";
+import { StorageDialog } from "./StorageDialog";
+import { StorageRecoveryDialog } from "./StorageRecoveryDialog";
+import { TrashDialog } from "./TrashDialog";
 
 type AppViewProps = {
   appError: string;
   setAppError: Dispatch<SetStateAction<string>>;
   historyOpen: boolean;
   setHistoryOpen: Dispatch<SetStateAction<boolean>>;
+  trashOpen: boolean;
+  setTrashOpen: Dispatch<SetStateAction<boolean>>;
   history: ReturnType<typeof useArticleHistory>;
   library: ReturnType<typeof useArticleLibrary>;
   presentation: ReturnType<typeof useArticlePresentation>;
@@ -31,11 +37,12 @@ type AppViewProps = {
   clipboard: ReturnType<typeof useClipboard>;
   autoSave: ReturnType<typeof useAutoSave>;
   backup: ReturnType<typeof useBackup>;
+  storage: ReturnType<typeof useStorageManager>;
   currentHistory: ArticleVersion[];
 };
 
 export function AppView(props: AppViewProps) {
-  const { library, presentation, editor, images, scroll, clipboard, autoSave, backup } = props;
+  const { library, presentation, editor, images, scroll, clipboard, autoSave, backup, storage } = props;
   return (
     <main className="workspace">
       <HeaderToolbar
@@ -55,6 +62,8 @@ export function AppView(props: AppViewProps) {
         onImportMarkdown={library.importMarkdown}
         onExportMarkdown={library.exportMarkdown}
         onDeleteArticle={library.deleteArticle}
+        onDuplicateArticle={library.duplicateArticle}
+        onOpenStorage={storage.openStorageManager}
         onExportLibrary={library.exportLibrary}
         onImportLibrary={library.importLibrary}
         onExportBackup={() => void backup.exportCompleteBackup()}
@@ -66,10 +75,18 @@ export function AppView(props: AppViewProps) {
       <StatusMessage message={props.appError} onClose={() => props.setAppError("")} />
       <section className="appGrid">
         <ArticleSidebar
-          articles={library.articles}
+          articles={library.visibleArticles}
           activeId={library.activeId}
+          searchQuery={library.searchQuery}
+          articleSort={library.articleSort}
+          totalCount={library.articles.length}
+          trashCount={library.trash.length}
           onCreate={library.createArticle}
           onSelect={library.selectArticle}
+          onSearch={library.setSearchQuery}
+          onSort={library.setArticleSort}
+          onTogglePinned={library.togglePinned}
+          onOpenTrash={() => props.setTrashOpen(true)}
         />
         <ArticleEditor
           activeId={library.activeId}
@@ -160,6 +177,42 @@ export function AppView(props: AppViewProps) {
           library.restoreVersion(version);
           props.setHistoryOpen(false);
         }}
+      />
+      <TrashDialog
+        open={props.trashOpen}
+        articles={library.trash}
+        onClose={() => props.setTrashOpen(false)}
+        onRestore={(articleId) => {
+          library.restoreFromTrash(articleId);
+          props.setTrashOpen(false);
+        }}
+        onDelete={library.permanentlyDeleteArticle}
+        onEmpty={library.emptyTrash}
+      />
+      <StorageDialog
+        open={storage.storageOpen}
+        busy={storage.storageBusy}
+        message={storage.storageMessage}
+        snapshot={storage.storageSnapshot}
+        articleCount={library.articles.length}
+        historyCount={props.history.history.length}
+        trashCount={library.trash.length}
+        onClose={() => storage.setStorageOpen(false)}
+        onRefresh={() => void storage.refreshStorageSnapshot()}
+        onPersist={() => void storage.requestPersistentStorage()}
+        onCleanup={() => void storage.cleanupUnusedImages()}
+        onBackup={() => void backup.exportCompleteBackup()}
+      />
+      <StorageRecoveryDialog
+        libraryRecovery={library.storageRecovery}
+        historyRecovery={props.history.storageRecovery}
+        onDownloadLibrary={library.downloadCorruptLibrary}
+        onRepairLibrary={library.repairCorruptLibrary}
+        onDiscardLibrary={library.discardCorruptLibrary}
+        onDownloadHistory={props.history.downloadCorruptHistory}
+        onRepairHistory={props.history.repairCorruptHistory}
+        onDiscardHistory={props.history.discardCorruptHistory}
+        onError={props.setAppError}
       />
     </main>
   );

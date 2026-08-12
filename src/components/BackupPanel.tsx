@@ -17,7 +17,14 @@ export function BackupPanel({ message, onExport, onImport }: BackupPanelProps) {
       <button className="ghostButton" type="button" onClick={() => inputRef.current?.click()}>
         恢复 ZIP
       </button>
-      <input ref={inputRef} className="visuallyHidden" type="file" accept="application/zip,.zip" onChange={onImport} />
+      <input
+        ref={inputRef}
+        className="visuallyHidden"
+        type="file"
+        accept="application/zip,.zip"
+        aria-label="选择完整备份 ZIP"
+        onChange={onImport}
+      />
     </>
   );
 }

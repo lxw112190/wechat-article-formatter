@@ -6,4 +6,7 @@ export { HistoryDialog } from "./HistoryDialog";
 export { PhonePreview } from "./PhonePreview";
 export { PublishPanel } from "./PublishPanel";
 export { StatusMessage } from "./StatusMessage";
+export { StorageDialog } from "./StorageDialog";
+export { StorageRecoveryDialog } from "./StorageRecoveryDialog";
 export { ThemeEditorDialog } from "./ThemeEditorDialog";
+export { TrashDialog } from "./TrashDialog";

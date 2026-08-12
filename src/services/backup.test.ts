@@ -23,12 +23,20 @@ const asset: ImageAsset = {
   alt: "图片",
   createdAt: "2026-07-22T00:00:00.000Z",
 };
+const trashedArticle = {
+  id: "article-trash",
+  title: "已删除文章",
+  markdown: "# 已删除文章",
+  updatedAt: "2026-07-21T00:00:00.000Z",
+  deletedAt: "2026-07-22T00:00:00.000Z",
+};
 
 describe("complete ZIP backup", () => {
   it("round-trips articles, history, settings and images", async () => {
     const bytes = await createCompleteBackup(
       {
         articles: [article],
+        trash: [trashedArticle],
         history: [{ id: "version-1", articleId: article.id, title: article.title, markdown: article.markdown, savedAt: article.updatedAt }],
         assets: [asset],
         settings: {
@@ -44,6 +52,7 @@ describe("complete ZIP backup", () => {
     expect(restored.manifest.format).toBe(backupFormat);
     expect(restored.manifest.version).toBe(backupVersion);
     expect(restored.articles).toEqual([article]);
+    expect(restored.trash).toEqual([trashedArticle]);
     expect(restored.history).toHaveLength(1);
     expect(restored.settings.themeId).toBe("custom-team");
     expect(restored.settings.customThemes).toHaveLength(1);
@@ -56,6 +65,7 @@ describe("complete ZIP backup", () => {
     const bytes = await createCompleteBackup(
       {
         articles: [article],
+        trash: [],
         history: [],
         assets: [],
         settings: { themeId: "wechat", syncScroll: true, outlineOpen: true, customThemes: [] },
@@ -74,6 +84,7 @@ describe("complete ZIP backup", () => {
     const bytes = await createCompleteBackup(
       {
         articles: [article],
+        trash: [],
         history: [],
         assets: [],
         settings: { themeId: "wechat", syncScroll: true, outlineOpen: true, customThemes: [] },
@@ -90,12 +101,14 @@ describe("complete ZIP backup", () => {
     expect(restored.articles).toEqual([article]);
     expect(restored.manifest.version).toBe(2);
     expect(restored.settings.customThemes).toEqual([]);
+    expect(restored.trash).toEqual([]);
   });
 
   it("rejects a payload whose SHA-256 no longer matches the manifest", async () => {
     const bytes = await createCompleteBackup(
       {
         articles: [article],
+        trash: [],
         history: [],
         assets: [],
         settings: { themeId: "wechat", syncScroll: true, outlineOpen: true, customThemes: [] },
@@ -113,6 +126,7 @@ describe("complete ZIP backup", () => {
     const bytes = await createCompleteBackup(
       {
         articles: [article],
+        trash: [],
         history: [],
         assets: [],
         settings: { themeId: "wechat", syncScroll: true, outlineOpen: true, customThemes: [] },

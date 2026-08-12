@@ -9,12 +9,14 @@ import {
   useClipboard,
   useImageAssets,
   useMarkdownEditor,
+  useStorageManager,
   useSyncScroll,
 } from "./hooks";
 
 export default function App() {
   const [appError, setAppError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const history = useArticleHistory({ onStorageError: setAppError });
   const library = useArticleLibrary({
     history: history.history,
@@ -66,14 +68,22 @@ export default function App() {
     customThemes: presentation.customThemes,
     syncScroll: scroll.syncScroll,
     outlineOpen: scroll.outlineOpen,
-    replaceLibrary: (articles, versions) => {
+    trash: library.trash,
+    replaceLibrary: (articles, versions, trash) => {
       autoSave.cancelAutoSave();
-      library.replaceLibrary(articles, versions);
+      library.replaceLibrary(articles, versions, trash);
     },
     setThemeId: presentation.setThemeId,
     replaceCustomThemes: presentation.replaceCustomThemes,
     setSyncScroll: scroll.setSyncScroll,
     setOutlineOpen: scroll.setOutlineOpen,
+    refreshAssets: images.refreshAssets,
+    onError: setAppError,
+  });
+  const storage = useStorageManager({
+    articles: library.getCurrentArticles(),
+    trash: library.trash,
+    history: history.history,
     refreshAssets: images.refreshAssets,
     onError: setAppError,
   });
@@ -87,6 +97,8 @@ export default function App() {
       setAppError={setAppError}
       historyOpen={historyOpen}
       setHistoryOpen={setHistoryOpen}
+      trashOpen={trashOpen}
+      setTrashOpen={setTrashOpen}
       history={history}
       library={library}
       presentation={presentation}
@@ -96,6 +108,7 @@ export default function App() {
       clipboard={clipboard}
       autoSave={autoSave}
       backup={backup}
+      storage={storage}
       currentHistory={currentHistory}
     />
   );

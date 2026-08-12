@@ -7,4 +7,5 @@ export { useClipboard } from "./useClipboard";
 export { useImageAssets } from "./useImageAssets";
 export { useMarkdownEditor } from "./useMarkdownEditor";
 export { useSyncScroll } from "./useSyncScroll";
+export { useStorageManager } from "./useStorageManager";
 export { useThemeLibrary } from "./useThemeLibrary";
