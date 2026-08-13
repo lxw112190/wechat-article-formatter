@@ -6,6 +6,8 @@
 
 👉 在线体验：https://wechat-article-formatter.lxw112190.workers.dev
 
+👉 桌面应用打包：[lw.Web2App](https://github.com/lxw112190/lw.Web2App)
+
 Author: 天天代码码天天 | QQ: 819069052<br>
 QQ Group: C# 人工智能实践 | 群号: 758616458
 
@@ -31,6 +33,29 @@ QQ Group: C# 人工智能实践 | 群号: 758616458
 - JSON 导出和导入继续保留，用于只包含文章文本的轻量兼容备份。
 - 导出完整 HTML 文件，文件包含文章标题和正文。
 - 打印 / 保存 PDF：生成独立的 A4 打印预览，保留当前主题、表格和预览图片，可用于定稿存档、审核、打印或另存为 PDF。
+
+## 桌面应用与 lw.Web2App
+
+本项目是纯前端 Web 应用，同时也是 [lw.Web2App](https://github.com/lxw112190/lw.Web2App) 的 CI 集成测试项目。
+
+lw.Web2App 是一个轻量级跨平台网页桌面应用打包工具，可以将 HTML、Vue、React、Vite 等静态项目打包为单文件桌面应用。目前稳定支持 Windows 10/11 x64，并提供 Ubuntu 22.04/24.04 x86_64 Beta；Windows 使用 WebView2，Linux 使用 WebKitGTK。
+
+lw.Web2App 的 CI 会自动检出本项目，执行 `npm ci` 和 `npm run build` 生成 `dist`，再将其打包为 Windows EXE 或 Linux 可执行文件，并检查 Payload 完整性、静态资源、SPA fallback 和启动流程。因此，本项目也是 lw.Web2App 持续验证真实 React/Vite 应用兼容性的示例。
+
+开发者可以在 Windows 本地完成打包：
+
+```powershell
+npm ci
+npm run build
+
+lw.Web2App.exe pack .\dist .\公众号排版助手.exe `
+  --title "公众号排版助手" `
+  --company "天天代码码天天" `
+  --version 0.4.0.0 `
+  --windowed
+```
+
+> 当前仓库尚未在 Release 中正式分发桌面版，上述内容用于说明自行打包方法和两个项目的集成测试关系。网页版、Windows WebView2 和 Linux WebKitGTK 使用不同的本地存储环境，数据不会自动同步；跨环境迁移前，请先导出“完整备份 ZIP”，再在目标环境中恢复。
 
 ## 快速开始
 
@@ -124,6 +149,7 @@ JSON 和单篇 `.md` 文件不包含图片二进制，仅适合轻量导出或�
 - IndexedDB（本地图片 Blob 存储）
 - Vitest（纯函数单元测试）
 - Playwright（核心用户流程端到端测试）
+- [lw.Web2App](https://github.com/lxw112190/lw.Web2App)（Windows/Linux 桌面应用打包与 CI 集成测试）
 - ESLint + Prettier（代码质量与格式）
 - 模块化原生 CSS
 - Browser `localStorage`
