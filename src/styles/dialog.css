@@ -113,6 +113,15 @@
 .recoveryDialog {
   width: min(680px, calc(100vw - 32px));
 }
+.storageDialog .historyHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.storageDialog .historyHead > button {
+  flex: 0 0 auto;
+}
 .dialogHint {
   margin: 0 0 16px;
   color: var(--muted);
