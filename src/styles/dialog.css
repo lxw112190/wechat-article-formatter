@@ -122,6 +122,15 @@
 .storageDialog .historyHead > button {
   flex: 0 0 auto;
 }
+.libraryDialog .historyHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.libraryDialog .historyHead > button {
+  flex: 0 0 auto;
+}
 .dialogHint {
   margin: 0 0 16px;
   color: var(--muted);

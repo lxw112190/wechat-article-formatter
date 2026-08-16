@@ -97,7 +97,7 @@ export function StorageDialog(props: StorageDialogProps) {
           <button type="button" disabled={props.busy || !snapshot?.unusedImageCount} onClick={props.onCleanup}>
             清理未使用图片
           </button>
-          <button className="primaryButton" type="button" disabled={props.busy} onClick={props.onBackup}>
+          <button type="button" disabled={props.busy} onClick={props.onBackup}>
             完整备份 ZIP
           </button>
         </div>

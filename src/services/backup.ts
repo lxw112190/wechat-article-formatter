@@ -115,7 +115,11 @@ function requireFile(zip: JSZip, path: string) {
 
 async function sha256(bytes: Uint8Array) {
   const source = bytes.slice().buffer;
-  const digest = await crypto.subtle.digest("SHA-256", source);
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error("当前运行环境不支持 SHA-256。请使用 HTTPS 或 localhost 打开，并更新浏览器/WebView2 后重试。");
+  }
+  const digest = await subtle.digest("SHA-256", source);
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
