@@ -68,6 +68,7 @@ export default function App() {
     customThemes: presentation.customThemes,
     syncScroll: scroll.syncScroll,
     outlineOpen: scroll.outlineOpen,
+    wordExportSettings: presentation.wordSettings,
     trash: library.trash,
     replaceLibrary: (articles, versions, trash) => {
       autoSave.cancelAutoSave();
@@ -77,6 +78,7 @@ export default function App() {
     replaceCustomThemes: presentation.replaceCustomThemes,
     setSyncScroll: scroll.setSyncScroll,
     setOutlineOpen: scroll.setOutlineOpen,
+    setWordExportSettings: presentation.updateWordSettings,
     refreshAssets: images.refreshAssets,
     onError: setAppError,
   });

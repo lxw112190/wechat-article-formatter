@@ -10,3 +10,4 @@ export { StorageDialog } from "./StorageDialog";
 export { StorageRecoveryDialog } from "./StorageRecoveryDialog";
 export { ThemeEditorDialog } from "./ThemeEditorDialog";
 export { TrashDialog } from "./TrashDialog";
+export { WordExportDialog } from "./WordExportDialog";

@@ -7,6 +7,7 @@ import { createCompleteBackup, getBackupFilename, readCompleteBackup } from "../
 import { saveArticleData } from "../services/articleStorage";
 import { defaultTheme, themes as builtInThemes } from "../themes/themes";
 import type { Article, ArticleVersion, DeletedArticle, Theme } from "../types";
+import type { WordExportSettings } from "../services/word";
 
 type UseBackupOptions = {
   articles: Article[];
@@ -16,11 +17,13 @@ type UseBackupOptions = {
   customThemes: Theme[];
   syncScroll: boolean;
   outlineOpen: boolean;
+  wordExportSettings: WordExportSettings;
   replaceLibrary: (articles: Article[], history: ArticleVersion[], trash: DeletedArticle[]) => void;
   setThemeId: (themeId: string) => void;
   replaceCustomThemes: (themes: Theme[]) => void;
   setSyncScroll: (enabled: boolean) => void;
   setOutlineOpen: (open: boolean) => void;
+  setWordExportSettings: (settings: WordExportSettings) => void;
   refreshAssets: () => void;
   onError: (message: string) => void;
 };
@@ -33,11 +36,13 @@ export function useBackup({
   customThemes,
   syncScroll,
   outlineOpen,
+  wordExportSettings,
   replaceLibrary,
   setThemeId,
   replaceCustomThemes,
   setSyncScroll,
   setOutlineOpen,
+  setWordExportSettings,
   refreshAssets,
   onError,
 }: UseBackupOptions) {
@@ -49,7 +54,7 @@ export function useBackup({
     try {
       const assets = await getAllImageAssets();
       const bytes = await createCompleteBackup(
-        { articles, history, trash, assets, settings: { themeId, syncScroll, outlineOpen, customThemes } },
+        { articles, history, trash, assets, settings: { themeId, syncScroll, outlineOpen, customThemes, wordExportSettings } },
         appVersion,
       );
       downloadBlob(new Blob([bytes.slice().buffer], { type: "application/zip" }), getBackupFilename());
@@ -86,6 +91,7 @@ export function useBackup({
       const previousThemeId = themeId;
       const previousSyncScroll = syncScroll;
       const previousOutlineOpen = outlineOpen;
+      const previousWordExportSettings = wordExportSettings;
       let assetsReplaced = false;
       try {
         await replaceAllImageAssets(restored.assets);
@@ -98,6 +104,7 @@ export function useBackup({
         setThemeId(restoredThemeExists ? restored.settings.themeId : defaultTheme.id);
         setSyncScroll(restored.settings.syncScroll);
         setOutlineOpen(restored.settings.outlineOpen);
+        setWordExportSettings(restored.settings.wordExportSettings);
         replaceLibrary(restored.articles, restored.history, restored.trash);
       } catch (error) {
         if (assetsReplaced) await replaceAllImageAssets(previousAssets).catch(() => undefined);
@@ -107,6 +114,7 @@ export function useBackup({
           setThemeId(previousThemeId);
           setSyncScroll(previousSyncScroll);
           setOutlineOpen(previousOutlineOpen);
+          setWordExportSettings(previousWordExportSettings);
           replaceLibrary(previousArticles, previousHistory, previousTrash);
         } catch {
           onError("恢复失败且自动回滚未能完整完成。请不要继续编辑，立即刷新页面并使用恢复前的完整 ZIP 备份。");

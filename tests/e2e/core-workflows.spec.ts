@@ -55,20 +55,33 @@ test("complete ZIP backup restores the article library", async ({ page }) => {
     .getByRole("button", { name: /立即保存|自动保存中|已自动保存|已保存/ })
     .first()
     .click();
+  await page.getByRole("button", { name: "导出 Word", exact: true }).first().click();
+  await page.getByRole("button", { name: "正式报告" }).click();
+  await page.getByLabel("关闭 Word 导出设置").click();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "完整备份 ZIP", exact: true }).click();
   const download = await downloadPromise;
   const path = await download.path();
   await page.getByLabel("标题").fill("已被修改");
+  await page.getByRole("button", { name: "导出 Word", exact: true }).first().click();
+  await page.getByRole("button", { name: "紧凑打印" }).click();
+  await page.getByLabel("关闭 Word 导出设置").click();
   await page.getByLabel("选择完整备份 ZIP").setInputFiles(path!);
   await expect(page.getByLabel("标题")).toHaveValue("备份恢复测试", { timeout: 10_000 });
+  await page.getByRole("button", { name: "导出 Word", exact: true }).first().click();
+  await expect(page.getByLabel("生成可点击文章目录")).toBeChecked();
+  await page.getByLabel("关闭 Word 导出设置").click();
 });
 
 test("Word export downloads a docx file", async ({ page }) => {
   await page.getByLabel("标题").fill("Word 导出测试");
   await page.locator("textarea.markdownInput").fill("# Word 导出测试\n\n**正文**\n\n[项目](https://github.com/demo)");
-  const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出 Word", exact: true }).first().click();
+  await expect(page.getByRole("dialog", { name: "Word 导出设置" })).toBeVisible();
+  await page.getByRole("button", { name: "正式报告" }).click();
+  await expect(page.getByLabel("生成可点击文章目录")).toBeChecked();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 .docx" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/\.docx$/);
   expect((await download.createReadStream()) !== null).toBe(true);

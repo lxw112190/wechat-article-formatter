@@ -1,11 +1,13 @@
 import {
   AlignmentType,
+  Bookmark,
   BorderStyle,
   Document as DocxDocument,
   ExternalHyperlink,
   Footer,
   HeadingLevel,
   ImageRun,
+  InternalHyperlink,
   LevelFormat,
   LineRuleType,
   PageNumber,
@@ -25,7 +27,127 @@ export type ExportWordOptions = {
   title: string;
   bodyHtml: string;
   theme: Theme;
+  settings?: WordExportSettings;
 };
+
+export type WordExportSettings = {
+  pageSize: "a4" | "a5";
+  marginTop: number;
+  marginRight: number;
+  marginBottom: number;
+  marginLeft: number;
+  showTitle: boolean;
+  removeDuplicateTitle: boolean;
+  includeToc: boolean;
+  tocDepth: 1 | 2 | 3;
+  showFooterTitle: boolean;
+  showPageNumbers: boolean;
+  fontFamily: "theme" | "microsoft-yahei" | "simsun" | "kaiti" | "fangsong";
+  bodyFontSize: number | null;
+  lineHeight: number | null;
+  imageMaxWidth: number;
+};
+
+export type WordExportPreset = "wechat" | "formal" | "compact";
+
+const wordSettingsStorageKey = "wechat-word-export-settings-v1";
+
+export const defaultWordExportSettings: WordExportSettings = {
+  pageSize: "a4",
+  marginTop: 19,
+  marginRight: 22,
+  marginBottom: 19,
+  marginLeft: 22,
+  showTitle: true,
+  removeDuplicateTitle: true,
+  includeToc: false,
+  tocDepth: 3,
+  showFooterTitle: true,
+  showPageNumbers: true,
+  fontFamily: "theme",
+  bodyFontSize: null,
+  lineHeight: null,
+  imageMaxWidth: 560,
+};
+
+export function getWordExportPreset(preset: WordExportPreset): WordExportSettings {
+  if (preset === "formal") {
+    return {
+      ...defaultWordExportSettings,
+      marginTop: 25,
+      marginRight: 26,
+      marginBottom: 24,
+      marginLeft: 26,
+      includeToc: true,
+      fontFamily: "simsun",
+      bodyFontSize: 12,
+      lineHeight: 1.7,
+      imageMaxWidth: 520,
+    };
+  }
+  if (preset === "compact") {
+    return {
+      ...defaultWordExportSettings,
+      marginTop: 15,
+      marginRight: 16,
+      marginBottom: 15,
+      marginLeft: 16,
+      showFooterTitle: false,
+      bodyFontSize: 10.5,
+      lineHeight: 1.45,
+      imageMaxWidth: 600,
+    };
+  }
+  return { ...defaultWordExportSettings };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
+export function normalizeWordExportSettings(value: unknown): WordExportSettings {
+  if (!isRecord(value)) return { ...defaultWordExportSettings };
+  const fontFamilies = ["theme", "microsoft-yahei", "simsun", "kaiti", "fangsong"] as const;
+  const bodySize = value.bodyFontSize == null ? null : clampNumber(value.bodyFontSize, 12, 9, 20);
+  const lineHeight = value.lineHeight == null ? null : clampNumber(value.lineHeight, 1.7, 1.2, 2.5);
+  return {
+    pageSize: value.pageSize === "a5" ? "a5" : "a4",
+    marginTop: clampNumber(value.marginTop, defaultWordExportSettings.marginTop, 8, 40),
+    marginRight: clampNumber(value.marginRight, defaultWordExportSettings.marginRight, 8, 40),
+    marginBottom: clampNumber(value.marginBottom, defaultWordExportSettings.marginBottom, 8, 40),
+    marginLeft: clampNumber(value.marginLeft, defaultWordExportSettings.marginLeft, 8, 40),
+    showTitle: typeof value.showTitle === "boolean" ? value.showTitle : defaultWordExportSettings.showTitle,
+    removeDuplicateTitle:
+      typeof value.removeDuplicateTitle === "boolean" ? value.removeDuplicateTitle : defaultWordExportSettings.removeDuplicateTitle,
+    includeToc: typeof value.includeToc === "boolean" ? value.includeToc : defaultWordExportSettings.includeToc,
+    tocDepth: value.tocDepth === 1 || value.tocDepth === 2 ? value.tocDepth : 3,
+    showFooterTitle: typeof value.showFooterTitle === "boolean" ? value.showFooterTitle : defaultWordExportSettings.showFooterTitle,
+    showPageNumbers: typeof value.showPageNumbers === "boolean" ? value.showPageNumbers : defaultWordExportSettings.showPageNumbers,
+    fontFamily: fontFamilies.includes(value.fontFamily as (typeof fontFamilies)[number])
+      ? (value.fontFamily as WordExportSettings["fontFamily"])
+      : "theme",
+    bodyFontSize: bodySize,
+    lineHeight,
+    imageMaxWidth: clampNumber(value.imageMaxWidth, defaultWordExportSettings.imageMaxWidth, 280, 680),
+  };
+}
+
+export function loadWordExportSettings(storage: Pick<Storage, "getItem">) {
+  try {
+    const raw = storage.getItem(wordSettingsStorageKey);
+    return raw ? normalizeWordExportSettings(JSON.parse(raw)) : { ...defaultWordExportSettings };
+  } catch {
+    return { ...defaultWordExportSettings };
+  }
+}
+
+export function saveWordExportSettings(storage: Pick<Storage, "setItem">, settings: WordExportSettings) {
+  storage.setItem(wordSettingsStorageKey, JSON.stringify(normalizeWordExportSettings(settings)));
+}
 
 type InlineStyle = {
   bold?: boolean;
@@ -38,8 +160,9 @@ type InlineStyle = {
   shading?: string;
 };
 
-type WordChild = TextRun | ImageRun | ExternalHyperlink;
+type WordChild = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | Bookmark;
 type HeadingKey = keyof Theme["headings"];
+type HeadingEntry = { id: string; level: number; text: string };
 
 const headingLevels = [
   HeadingLevel.HEADING_1,
@@ -53,7 +176,41 @@ const headingLevels = [
 const cleanColor = (color: string) => color.replace("#", "").toUpperCase();
 const pxToHalfPoints = (pixels: number) => Math.max(16, Math.round(pixels * 1.5));
 const pxToTwips = (pixels: number) => Math.max(0, Math.round(pixels * 15));
+const mmToTwips = (millimeters: number) => Math.round(millimeters * 56.6929);
 const bodyLineSpacing = (theme: Theme) => Math.round(theme.bodyLineHeight * 240);
+
+function pageLayout(settings: WordExportSettings) {
+  const page = settings.pageSize === "a5" ? { width: 8391, height: 11906 } : { width: 11906, height: 16838 };
+  const margins = {
+    top: mmToTwips(settings.marginTop),
+    right: mmToTwips(settings.marginRight),
+    bottom: mmToTwips(settings.marginBottom),
+    left: mmToTwips(settings.marginLeft),
+    header: 500,
+    footer: 500,
+    gutter: 0,
+  };
+  return { ...page, margins, contentWidth: page.width - margins.left - margins.right };
+}
+
+function addUrlBreakOpportunities(value: string) {
+  return value.replace(/([/?#&=._-])/g, "$1\u200b");
+}
+
+function applyWordSettingsToTheme(theme: Theme, settings: WordExportSettings): Theme {
+  const fontMap: Record<Exclude<WordExportSettings["fontFamily"], "theme">, Theme["fontFamily"]> = {
+    "microsoft-yahei": "microsoft-yahei",
+    simsun: "songti",
+    kaiti: "kaiti",
+    fangsong: "fangsong",
+  };
+  return {
+    ...theme,
+    fontFamily: settings.fontFamily === "theme" ? theme.fontFamily : fontMap[settings.fontFamily],
+    bodyFontSize: settings.bodyFontSize === null ? theme.bodyFontSize : settings.bodyFontSize / 0.75,
+    bodyLineHeight: settings.lineHeight ?? theme.bodyLineHeight,
+  };
+}
 
 function wordAlignment(alignment: string) {
   if (alignment === "center") return AlignmentType.CENTER;
@@ -101,22 +258,59 @@ function toImageType(blob: Blob, src: string): "jpg" | "png" | "gif" | null {
   return null;
 }
 
-async function loadImageRun(image: HTMLImageElement) {
+async function convertImageBlobToPng(blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("图片解码失败"));
+      image.src = url;
+    });
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(image, 0, 0, width, height);
+    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    return png ? { blob: png, width, height } : null;
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function loadImageRun(image: HTMLImageElement, maxWidth: number) {
   const src = image.currentSrc || image.src;
   if (!src) return null;
   try {
     const response = await fetch(src);
     if (!response.ok) return null;
-    const blob = await response.blob();
-    const type = toImageType(blob, src);
+    let blob = await response.blob();
+    let type = toImageType(blob, src);
+    let convertedSize: { width: number; height: number } | null = null;
+    if (!type && (blob.type === "image/webp" || blob.type === "image/svg+xml" || /\.(?:webp|svg)(?:\?|$)/i.test(src))) {
+      const converted = await convertImageBlobToPng(blob);
+      if (converted) {
+        blob = converted.blob;
+        type = "png";
+        convertedSize = converted;
+      }
+    }
     if (!type) return null;
-    const width = Number(image.getAttribute("width")) || image.naturalWidth || 560;
-    const height = Number(image.getAttribute("height")) || image.naturalHeight || Math.round(width * 0.56);
+    const width = Number(image.getAttribute("width")) || image.naturalWidth || convertedSize?.width || maxWidth;
+    const height = Number(image.getAttribute("height")) || image.naturalHeight || convertedSize?.height || Math.round(width * 0.56);
     const alt = image.alt || "文章图片";
     return new ImageRun({
       type,
       data: new Uint8Array(await blob.arrayBuffer()),
-      transformation: fitImageSize(width, height),
+      transformation: fitImageSize(width, height, maxWidth),
       altText: { title: alt, description: alt, name: alt },
     });
   } catch {
@@ -138,20 +332,29 @@ function textRun(text: string, theme: Theme, style: InlineStyle = {}) {
   });
 }
 
-async function inlineChildren(node: Node, theme: Theme, style: InlineStyle = {}): Promise<WordChild[]> {
+async function inlineChildren(
+  node: Node,
+  theme: Theme,
+  style: InlineStyle = {},
+  settings: WordExportSettings = defaultWordExportSettings,
+): Promise<WordChild[]> {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ? [textRun(node.textContent, theme, style)] : [];
   if (!(node instanceof HTMLElement)) return [];
   if (node.tagName === "BR") return [new TextRun({ break: 1 })];
   if (node.tagName === "IMG") {
-    const run = await loadImageRun(node as HTMLImageElement);
+    const run = await loadImageRun(node as HTMLImageElement, settings.imageMaxWidth);
     if (run) return [run];
     const image = node as HTMLImageElement;
     return [textRun(`【图片：${image.alt || "未加载"}】${image.src ? ` 原图：${image.src}` : ""}`, theme, style)];
   }
   if (node.tagName === "A") {
     const linkStyle = { ...style, color: cleanColor(theme.accent), underline: true };
-    const children = (await Promise.all(Array.from(node.childNodes).map((child) => inlineChildren(child, theme, linkStyle)))).flat();
     const href = node.getAttribute("href")?.trim();
+    const label = node.textContent?.trim() ?? "";
+    const children =
+      href && /^https?:\/\//i.test(label) && label === href
+        ? [textRun(addUrlBreakOpportunities(label), theme, linkStyle)]
+        : (await Promise.all(Array.from(node.childNodes).map((child) => inlineChildren(child, theme, linkStyle, settings)))).flat();
     return href ? [new ExternalHyperlink({ link: href, children })] : children;
   }
   const isInlineCode = node.tagName === "CODE";
@@ -164,7 +367,7 @@ async function inlineChildren(node: Node, theme: Theme, style: InlineStyle = {})
     color: isInlineCode ? cleanColor(theme.heading) : style.color,
     shading: isInlineCode ? cleanColor(theme.codeBg) : style.shading,
   };
-  return (await Promise.all(Array.from(node.childNodes).map((child) => inlineChildren(child, theme, nextStyle)))).flat();
+  return (await Promise.all(Array.from(node.childNodes).map((child) => inlineChildren(child, theme, nextStyle, settings)))).flat();
 }
 
 function headingPresentation(theme: Theme, level: number) {
@@ -190,6 +393,7 @@ function headingPresentation(theme: Theme, level: number) {
 async function paragraphFromNode(
   node: Element,
   theme: Theme,
+  settings: WordExportSettings,
   options: {
     headingLevel?: number;
     level?: number;
@@ -198,6 +402,7 @@ async function paragraphFromNode(
     style?: InlineStyle;
     compact?: boolean;
     alignment?: (typeof AlignmentType)[keyof typeof AlignmentType];
+    bookmarkId?: string;
   } = {},
 ) {
   const heading = options.headingLevel === undefined ? undefined : headingLevels[options.headingLevel];
@@ -212,10 +417,11 @@ async function paragraphFromNode(
       children.push(textRun((child as HTMLInputElement).checked ? "☑ " : "☐ ", theme, baseStyle));
       continue;
     }
-    children.push(...(await inlineChildren(child, theme, baseStyle)));
+    children.push(...(await inlineChildren(child, theme, baseStyle, settings)));
   }
+  const paragraphChildren = children.length ? children : [textRun("", theme, baseStyle)];
   return new Paragraph({
-    children: children.length ? children : [textRun("", theme, baseStyle)],
+    children: options.bookmarkId ? [new Bookmark({ id: options.bookmarkId, children: paragraphChildren })] : paragraphChildren,
     heading,
     alignment: headingStyle?.alignment ?? options.alignment ?? wordAlignment(theme.bodyTextAlign),
     bullet: options.bullet ? { level: Math.min(options.level ?? 0, 7) } : undefined,
@@ -239,27 +445,41 @@ async function paragraphFromNode(
     keepNext: Boolean(headingStyle),
     keepLines: Boolean(headingStyle),
     widowControl: true,
+    wordWrap: true,
+    overflowPunctuation: true,
+    autoSpaceEastAsianText: true,
   });
 }
 
-async function listParagraphs(list: HTMLUListElement | HTMLOListElement, theme: Theme, level = 0): Promise<Paragraph[]> {
+async function listParagraphs(
+  list: HTMLUListElement | HTMLOListElement,
+  theme: Theme,
+  settings: WordExportSettings,
+  level = 0,
+): Promise<Paragraph[]> {
   const ordered = list.tagName === "OL";
   const paragraphs: Paragraph[] = [];
   for (const child of Array.from(list.children)) {
     if (!(child instanceof HTMLLIElement)) continue;
-    paragraphs.push(await paragraphFromNode(child, theme, { level, bullet: !ordered, numbering: ordered, compact: true }));
+    paragraphs.push(await paragraphFromNode(child, theme, settings, { level, bullet: !ordered, numbering: ordered, compact: true }));
     for (const nested of Array.from(child.children)) {
       if (nested.tagName === "UL" || nested.tagName === "OL")
-        paragraphs.push(...(await listParagraphs(nested as HTMLUListElement | HTMLOListElement, theme, level + 1)));
+        paragraphs.push(...(await listParagraphs(nested as HTMLUListElement | HTMLOListElement, theme, settings, level + 1)));
     }
   }
   if (paragraphs.length) paragraphs.push(new Paragraph({ spacing: { after: Math.max(60, pxToTwips(theme.listSpacing)) } }));
   return paragraphs;
 }
 
-async function tableFromNode(table: HTMLTableElement, theme: Theme) {
+async function tableFromNode(table: HTMLTableElement, theme: Theme, settings: WordExportSettings) {
   const rows: TableRow[] = [];
   const sourceRows = Array.from(table.querySelectorAll(":scope > thead > tr, :scope > tbody > tr, :scope > tr"));
+  const columnCount = Math.max(
+    1,
+    ...sourceRows.map((row) =>
+      Array.from(row.children).reduce((count, cell) => count + Math.max(1, Number(cell.getAttribute("colspan")) || 1), 0),
+    ),
+  );
   for (const [rowIndex, row] of sourceRows.entries()) {
     const cells: TableCell[] = [];
     for (const cell of Array.from(row.children)) {
@@ -273,10 +493,10 @@ async function tableFromNode(table: HTMLTableElement, theme: Theme) {
       const children = cell.querySelectorAll(":scope > p").length
         ? await Promise.all(
             Array.from(cell.querySelectorAll(":scope > p")).map((paragraph) =>
-              paragraphFromNode(paragraph, theme, { style: cellStyle, compact: true }),
+              paragraphFromNode(paragraph, theme, settings, { style: cellStyle, compact: true }),
             ),
           )
-        : [await paragraphFromNode(cell, theme, { style: cellStyle, compact: true })];
+        : [await paragraphFromNode(cell, theme, settings, { style: cellStyle, compact: true })];
       const headerFill = theme.tableStyle === "accent-header" ? cleanColor(theme.accent) : cleanColor(theme.accentSoft);
       const stripeFill = rowIndex > 0 && rowIndex % 2 === 0 && theme.tableStyle !== "minimal" ? "F8FAFC" : undefined;
       cells.push(
@@ -288,6 +508,8 @@ async function tableFromNode(table: HTMLTableElement, theme: Theme) {
               ? { type: ShadingType.CLEAR, color: "auto", fill: stripeFill }
               : undefined,
           margins: { top: 110, bottom: 110, left: 140, right: 140 },
+          columnSpan: Math.max(1, Number(cell.getAttribute("colspan")) || 1),
+          rowSpan: Math.max(1, Number(cell.getAttribute("rowspan")) || 1),
           borders: {
             top: { style: BorderStyle.SINGLE, size: 4, color: cleanColor(theme.border) },
             bottom: { style: BorderStyle.SINGLE, size: 4, color: cleanColor(theme.border) },
@@ -299,9 +521,11 @@ async function tableFromNode(table: HTMLTableElement, theme: Theme) {
     }
     if (cells.length) rows.push(new TableRow({ children: cells, cantSplit: true, tableHeader: rowIndex === 0 }));
   }
+  const contentWidth = pageLayout(settings).contentWidth;
   return new Table({
     rows,
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: contentWidth, type: WidthType.DXA },
+    columnWidths: Array.from({ length: columnCount }, () => Math.floor(contentWidth / columnCount)),
     alignment: AlignmentType.CENTER,
   });
 }
@@ -343,20 +567,25 @@ async function codeParagraph(node: Element, theme: Theme) {
   });
 }
 
-async function blockChildren(root: ParentNode, theme: Theme): Promise<Array<Paragraph | Table>> {
+async function blockChildren(root: ParentNode, theme: Theme, settings: WordExportSettings): Promise<Array<Paragraph | Table>> {
   const output: Array<Paragraph | Table> = [];
   for (const node of Array.from(root.children)) {
     const tag = node.tagName;
     if (/^H[1-6]$/.test(tag)) {
-      output.push(await paragraphFromNode(node, theme, { headingLevel: Number(tag.slice(1)) - 1 }));
+      output.push(
+        await paragraphFromNode(node, theme, settings, {
+          headingLevel: Number(tag.slice(1)) - 1,
+          bookmarkId: node.getAttribute("data-word-bookmark") ?? undefined,
+        }),
+      );
     } else if (tag === "P") {
       const onlyImage = node.children.length === 1 && node.firstElementChild?.tagName === "IMG" && !(node.textContent ?? "").trim();
-      output.push(await paragraphFromNode(node, theme, { alignment: onlyImage ? AlignmentType.CENTER : undefined }));
+      output.push(await paragraphFromNode(node, theme, settings, { alignment: onlyImage ? AlignmentType.CENTER : undefined }));
     } else if (tag === "BLOCKQUOTE") {
       const children = (
         await Promise.all(
           Array.from(node.childNodes).map((child) =>
-            inlineChildren(child, theme, { color: cleanColor(theme.muted), italics: theme.blockquoteStyle === "quote" }),
+            inlineChildren(child, theme, { color: cleanColor(theme.muted), italics: theme.blockquoteStyle === "quote" }, settings),
           ),
         )
       ).flat();
@@ -374,9 +603,9 @@ async function blockChildren(root: ParentNode, theme: Theme): Promise<Array<Para
     } else if (tag === "PRE") {
       output.push(await codeParagraph(node, theme));
     } else if (tag === "UL" || tag === "OL") {
-      output.push(...(await listParagraphs(node as HTMLUListElement | HTMLOListElement, theme)));
+      output.push(...(await listParagraphs(node as HTMLUListElement | HTMLOListElement, theme, settings)));
     } else if (tag === "TABLE") {
-      output.push(await tableFromNode(node as HTMLTableElement, theme));
+      output.push(await tableFromNode(node as HTMLTableElement, theme, settings));
       output.push(new Paragraph({ spacing: { after: pxToTwips(theme.paragraphSpacing) } }));
     } else if (tag === "HR") {
       output.push(dividerParagraph(theme));
@@ -386,7 +615,7 @@ async function blockChildren(root: ParentNode, theme: Theme): Promise<Array<Para
       if (image) {
         output.push(
           new Paragraph({
-            children: await inlineChildren(image, theme),
+            children: await inlineChildren(image, theme, {}, settings),
             alignment: AlignmentType.CENTER,
             spacing: { before: 120, after: caption ? 80 : pxToTwips(theme.imageSpacing) },
             keepLines: true,
@@ -395,7 +624,7 @@ async function blockChildren(root: ParentNode, theme: Theme): Promise<Array<Para
       }
       if (caption) {
         output.push(
-          await paragraphFromNode(caption, theme, {
+          await paragraphFromNode(caption, theme, settings, {
             style: { color: cleanColor(theme.muted), size: pxToHalfPoints(theme.imageCaptionSize) },
             alignment: wordAlignment(theme.imageCaptionAlign),
             compact: true,
@@ -403,12 +632,12 @@ async function blockChildren(root: ParentNode, theme: Theme): Promise<Array<Para
         );
       }
       for (const child of Array.from(node.children)) {
-        if (child !== image && child !== caption) output.push(...(await blockChildren(child, theme)));
+        if (child !== image && child !== caption) output.push(...(await blockChildren(child, theme, settings)));
       }
     } else if (tag === "SECTION") {
-      output.push(...(await blockChildren(node, theme)));
+      output.push(...(await blockChildren(node, theme, settings)));
     } else {
-      output.push(await paragraphFromNode(node, theme));
+      output.push(await paragraphFromNode(node, theme, settings));
     }
   }
   return output;
@@ -432,17 +661,79 @@ function headingDefault(theme: Theme, key: HeadingKey) {
   };
 }
 
+function prepareWordBody(root: DocumentFragment, title: string, settings: WordExportSettings): HeadingEntry[] {
+  root.querySelectorAll<HTMLElement>("[data-outline-index]").forEach((element) => element.removeAttribute("data-outline-index"));
+  if (settings.showTitle && settings.removeDuplicateTitle) {
+    let first = root.firstElementChild;
+    while (first && ["SECTION", "ARTICLE", "MAIN", "DIV"].includes(first.tagName) && first.firstElementChild) {
+      first = first.firstElementChild;
+    }
+    if (first?.tagName === "H1" && first.textContent?.trim() === title.trim()) first.remove();
+  }
+  return Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")).map((heading, index) => {
+    const entry = {
+      id: `word-heading-${index + 1}`,
+      level: Number(heading.tagName.slice(1)),
+      text: heading.textContent?.trim() || `标题 ${index + 1}`,
+    };
+    heading.setAttribute("data-word-bookmark", entry.id);
+    return entry;
+  });
+}
+
+function tableOfContents(theme: Theme, settings: WordExportSettings, headings: HeadingEntry[]) {
+  const entries = headings.filter((heading) => heading.level <= settings.tocDepth);
+  if (!entries.length) return [];
+  return [
+    new Paragraph({
+      children: [textRun("目录", theme, { bold: true, color: cleanColor(theme.heading), size: 30 })],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 80, after: 180 },
+      keepNext: true,
+    }),
+    ...entries.map(
+      (entry) =>
+        new Paragraph({
+          children: [
+            new InternalHyperlink({
+              anchor: entry.id,
+              children: [
+                textRun(entry.text, theme, {
+                  color: entry.level === 1 ? cleanColor(theme.heading) : cleanColor(theme.text),
+                  bold: entry.level === 1,
+                  size: Math.max(18, pxToHalfPoints(theme.bodyFontSize) - (entry.level - 1)),
+                }),
+              ],
+            }),
+          ],
+          indent: { left: (entry.level - 1) * 360 },
+          spacing: { after: 80, line: 280 },
+          keepLines: true,
+        }),
+    ),
+    dividerParagraph(theme),
+  ];
+}
+
 export async function buildWordDocument(options: ExportWordOptions) {
+  const settings = normalizeWordExportSettings(options.settings ?? defaultWordExportSettings);
+  const layout = pageLayout(settings);
+  const effectiveSettings = {
+    ...settings,
+    imageMaxWidth: Math.min(settings.imageMaxWidth, Math.max(280, Math.floor(layout.contentWidth / 15))),
+  };
+  const theme = applyWordSettingsToTheme(options.theme, effectiveSettings);
   const template = document.createElement("template");
   template.innerHTML = options.bodyHtml;
-  const font = getWordFontName(options.theme);
-  const accent = cleanColor(options.theme.accent);
+  const headings = prepareWordBody(template.content, options.title, effectiveSettings);
+  const font = getWordFontName(theme);
+  const accent = cleanColor(theme.accent);
   const title = new Paragraph({
     children: [
-      textRun(options.title || "未命名文章", options.theme, {
+      textRun(options.title || "未命名文章", theme, {
         bold: true,
-        color: cleanColor(options.theme.heading),
-        size: Math.max(36, pxToHalfPoints(options.theme.headings.h1.fontSize) + 6),
+        color: cleanColor(theme.heading),
+        size: Math.max(36, pxToHalfPoints(theme.headings.h1.fontSize) + 6),
       }),
     ],
     heading: HeadingLevel.TITLE,
@@ -451,7 +742,32 @@ export async function buildWordDocument(options: ExportWordOptions) {
     border: { bottom: { style: BorderStyle.SINGLE, size: 10, color: accent, space: 12 } },
     keepNext: true,
   });
-  const children = [title, ...(await blockChildren(template.content, options.theme))];
+  const children = [
+    ...(effectiveSettings.showTitle ? [title] : []),
+    ...(effectiveSettings.includeToc ? tableOfContents(theme, effectiveSettings, headings) : []),
+    ...(await blockChildren(template.content, theme, effectiveSettings)),
+  ];
+  const footerChildren: WordChild[] = [];
+  if (effectiveSettings.showFooterTitle) {
+    footerChildren.push(textRun(options.title || "未命名文章", theme, { color: cleanColor(theme.muted), size: 18 }));
+  }
+  if (effectiveSettings.showFooterTitle && effectiveSettings.showPageNumbers) {
+    footerChildren.push(textRun("  ·  ", theme, { color: cleanColor(theme.border), size: 18 }));
+  }
+  if (effectiveSettings.showPageNumbers) {
+    footerChildren.push(new TextRun({ children: [PageNumber.CURRENT], font, color: cleanColor(theme.muted), size: 18 }));
+  }
+  const footer = footerChildren.length
+    ? new Footer({
+        children: [
+          new Paragraph({
+            children: footerChildren,
+            alignment: AlignmentType.CENTER,
+            border: { top: { style: BorderStyle.SINGLE, size: 2, color: cleanColor(theme.border), space: 8 } },
+          }),
+        ],
+      })
+    : undefined;
   return new DocxDocument({
     creator: "公众号排版助手",
     title: options.title,
@@ -459,19 +775,19 @@ export async function buildWordDocument(options: ExportWordOptions) {
     styles: {
       default: {
         document: {
-          run: { font, color: cleanColor(options.theme.text), size: pxToHalfPoints(options.theme.bodyFontSize) },
+          run: { font, color: cleanColor(theme.text), size: pxToHalfPoints(theme.bodyFontSize) },
           paragraph: {
-            alignment: wordAlignment(options.theme.bodyTextAlign),
-            spacing: { after: pxToTwips(options.theme.paragraphSpacing), line: bodyLineSpacing(options.theme) },
+            alignment: wordAlignment(theme.bodyTextAlign),
+            spacing: { after: pxToTwips(theme.paragraphSpacing), line: bodyLineSpacing(theme) },
           },
         },
-        title: { run: { font, color: cleanColor(options.theme.heading), bold: true }, paragraph: { alignment: AlignmentType.CENTER } },
-        heading1: headingDefault(options.theme, "h1"),
-        heading2: headingDefault(options.theme, "h2"),
-        heading3: headingDefault(options.theme, "h3"),
-        heading4: headingDefault(options.theme, "h4"),
-        heading5: headingDefault(options.theme, "h5"),
-        heading6: headingDefault(options.theme, "h6"),
+        title: { run: { font, color: cleanColor(theme.heading), bold: true }, paragraph: { alignment: AlignmentType.CENTER } },
+        heading1: headingDefault(theme, "h1"),
+        heading2: headingDefault(theme, "h2"),
+        heading3: headingDefault(theme, "h3"),
+        heading4: headingDefault(theme, "h4"),
+        heading5: headingDefault(theme, "h5"),
+        heading6: headingDefault(theme, "h6"),
         hyperlink: { run: { color: accent, underline: { type: UnderlineType.SINGLE, color: accent } } },
       },
     },
@@ -495,23 +811,9 @@ export async function buildWordDocument(options: ExportWordOptions) {
     sections: [
       {
         properties: {
-          page: { margin: { top: 1080, right: 1260, bottom: 1080, left: 1260, header: 500, footer: 500, gutter: 0 } },
+          page: { size: { width: layout.width, height: layout.height }, margin: layout.margins },
         },
-        footers: {
-          default: new Footer({
-            children: [
-              new Paragraph({
-                children: [
-                  textRun(options.title || "未命名文章", options.theme, { color: cleanColor(options.theme.muted), size: 18 }),
-                  textRun("  ·  ", options.theme, { color: cleanColor(options.theme.border), size: 18 }),
-                  new TextRun({ children: [PageNumber.CURRENT], font, color: cleanColor(options.theme.muted), size: 18 }),
-                ],
-                alignment: AlignmentType.CENTER,
-                border: { top: { style: BorderStyle.SINGLE, size: 2, color: cleanColor(options.theme.border), space: 8 } },
-              }),
-            ],
-          }),
-        },
+        footers: footer ? { default: footer } : undefined,
         children,
       },
     ],

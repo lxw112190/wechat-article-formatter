@@ -4,9 +4,11 @@ import { getLocalAssetReferences } from "../markdown/assets";
 import type { Article, ArticleVersion, DeletedArticle, Theme } from "../types";
 import { normalizeArticles, normalizeHistory, normalizeTrash } from "./articleStorage";
 import { normalizeCustomThemes } from "./themeStorage";
+import { normalizeWordExportSettings } from "./word";
+import type { WordExportSettings } from "./word";
 
 export const backupFormat = "wechat-article-backup";
-export const backupVersion = 4;
+export const backupVersion = 5;
 
 export const backupLimits = {
   maxCompressedBytes: 200 * 1024 * 1024,
@@ -22,6 +24,7 @@ export type BackupSettings = {
   syncScroll: boolean;
   outlineOpen: boolean;
   customThemes: Theme[];
+  wordExportSettings: WordExportSettings;
 };
 
 type BackupImageEntry = {
@@ -309,6 +312,7 @@ export async function readCompleteBackup(
     syncScroll: typeof rawSettings.syncScroll === "boolean" ? rawSettings.syncScroll : true,
     outlineOpen: typeof rawSettings.outlineOpen === "boolean" ? rawSettings.outlineOpen : true,
     customThemes: normalizeCustomThemes(rawSettings.customThemes),
+    wordExportSettings: normalizeWordExportSettings(rawSettings.wordExportSettings),
   };
 
   const assets: ImageAsset[] = [];
