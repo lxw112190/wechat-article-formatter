@@ -23,6 +23,8 @@ type HeaderToolbarProps = {
   onExportBackup: () => void;
   onImportBackup: (event: ChangeEvent<HTMLInputElement>) => void;
   onExportHtml: () => void;
+  onExportWord: () => void | Promise<void>;
+  wordExporting: boolean;
   onPrint: () => void;
   onCopy: () => void;
 };
@@ -72,6 +74,9 @@ export function HeaderToolbar(props: HeaderToolbarProps) {
         <BackupPanel message={props.backupMessage} onExport={props.onExportBackup} onImport={props.onImportBackup} />
         <button className="ghostButton" type="button" onClick={props.onExportHtml}>
           导出 HTML
+        </button>
+        <button className="ghostButton" type="button" disabled={props.wordExporting} onClick={() => void props.onExportWord()}>
+          {props.wordExporting ? "正在导出 Word…" : "导出 Word"}
         </button>
         <button className="ghostButton" type="button" onClick={props.onPrint}>
           打印 / 保存 PDF

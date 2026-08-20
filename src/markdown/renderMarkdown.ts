@@ -2,6 +2,8 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type { Theme, ThemeHeadingLevel } from "../types";
 import { escapeHtml, localAssetPattern, prepareAssetMarkdown } from "./assets";
+import { replaceMarkdownLinksWithPlainText } from "./links";
+import { prepareWechatHtml } from "./wechat";
 
 export function getThemeFontFamily(theme: Theme) {
   const families: Record<Theme["fontFamily"], string> = {
@@ -276,7 +278,8 @@ function replaceLocalImagesWithIds(bodyHtml: string, theme: Theme) {
 
 export function buildCopyHtml(bodyHtml: string, theme: Theme) {
   const copyBody = replaceLocalImagesWithIds(bodyHtml, theme);
-  return `<div style="max-width:677px;margin:0 auto;padding:8px 0 0;font-family:${getThemeFontFamily(theme)};">${copyBody}</div>`;
+  const wechatBody = prepareWechatHtml(copyBody, theme);
+  return `<div style="max-width:677px;margin:0 auto;padding:8px 0 0;font-family:${getThemeFontFamily(theme)};">${wechatBody}</div>`;
 }
 
 export function buildExportHtml(title: string, bodyHtml: string, theme: Theme) {
@@ -300,6 +303,11 @@ export function buildExportHtml(title: string, bodyHtml: string, theme: Theme) {
 
 export function buildCopyPlainText(markdown: string) {
   return stripMarkdown(
-    markdown.replace(localAssetPattern, (_match, alt: string, id: string) => `\n\n【请上传图片：${id}${alt ? `；说明：${alt}` : ""}】\n\n`),
+    replaceMarkdownLinksWithPlainText(
+      markdown.replace(
+        localAssetPattern,
+        (_match, alt: string, id: string) => `\n\n【请上传图片：${id}${alt ? `；说明：${alt}` : ""}】\n\n`,
+      ),
+    ),
   );
 }

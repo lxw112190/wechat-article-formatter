@@ -64,6 +64,27 @@ test("complete ZIP backup restores the article library", async ({ page }) => {
   await expect(page.getByLabel("标题")).toHaveValue("备份恢复测试", { timeout: 10_000 });
 });
 
+test("Word export downloads a docx file", async ({ page }) => {
+  await page.getByLabel("标题").fill("Word 导出测试");
+  await page.locator("textarea.markdownInput").fill("# Word 导出测试\n\n**正文**\n\n[项目](https://github.com/demo)");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 Word", exact: true }).first().click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/\.docx$/);
+  expect((await download.createReadStream()) !== null).toBe(true);
+});
+
+test("WeChat copy keeps external URLs and task state", async ({ page, context }) => {
+  page.on("dialog", (dialog) => dialog.accept());
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.locator("textarea.markdownInput").fill("[项目](https://github.com/demo)\n\n- [x] 已完成\n- [ ] 待办");
+  await page.getByRole("button", { name: "复制正文" }).first().click();
+  const clipboard = await page.evaluate(async () => navigator.clipboard.readText());
+  expect(clipboard).toContain("https://github.com/demo");
+  expect(clipboard).toContain("☑");
+  expect(clipboard).toContain("☐");
+});
+
 test("copy HTML uses an image ID placeholder instead of Base64", async ({ page, context }) => {
   page.on("dialog", (dialog) => dialog.accept());
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);

@@ -1,6 +1,7 @@
 import type { ImageAsset } from "../imageAssets";
 import type { OutlineItem, PreflightIssue } from "../types";
 import { getLocalAssetReferences } from "./assets";
+import { summarizeMarkdownLinks } from "./links";
 
 export function inspectBeforePublish(
   title: string,
@@ -90,22 +91,22 @@ export function inspectBeforePublish(
 
   const markdownWithoutImages = markdown.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
   const linkMatches = [...markdownWithoutImages.matchAll(/\[([^\]]*)\]\(([^)]*)\)/g)];
-  const emptyLinks = linkMatches.filter((match) => !match[2].trim()).length;
-  const insecureLinks = linkMatches.filter((match) => /^http:\/\//i.test(match[2].trim())).length;
+  const linkSummary = summarizeMarkdownLinks(markdownWithoutImages);
   const exampleLinks = linkMatches.filter((match) => /example\.com|图片地址/i.test(match[2])).length;
-  if (emptyLinks) issues.push({ id: "links", label: "正文链接", detail: `${emptyLinks} 个链接缺少地址。`, status: "error" });
-  else if (insecureLinks || exampleLinks)
+  if (linkSummary.emptyCount)
+    issues.push({ id: "links", label: "正文链接", detail: `${linkSummary.emptyCount} 个链接缺少地址。`, status: "error" });
+  else if (linkSummary.insecureHttpCount || linkSummary.externalHttpsCount || linkSummary.mailtoCount || exampleLinks)
     issues.push({
       id: "links",
       label: "正文链接",
-      detail: `${insecureLinks ? `${insecureLinks} 个 HTTP 链接` : ""}${insecureLinks && exampleLinks ? "；" : ""}${exampleLinks ? `${exampleLinks} 个示例链接未替换` : ""}。`,
+      detail: `${linkSummary.wechatArticleCount ? `${linkSummary.wechatArticleCount} 个公众号文章链接，可由微信保留跳转` : ""}${linkSummary.wechatArticleCount && (linkSummary.externalHttpsCount || linkSummary.insecureHttpCount || linkSummary.mailtoCount) ? "；" : ""}${linkSummary.externalHttpsCount ? `${linkSummary.externalHttpsCount} 个普通外部 HTTPS 链接，复制时会保留 URL` : ""}${linkSummary.insecureHttpCount ? `${linkSummary.externalHttpsCount ? "；" : ""}${linkSummary.insecureHttpCount} 个 HTTP 链接，请确认安全性` : ""}${linkSummary.mailtoCount ? `${linkSummary.externalHttpsCount || linkSummary.insecureHttpCount ? "；" : ""}${linkSummary.mailtoCount} 个邮箱链接，复制时会保留邮箱地址` : ""}${exampleLinks ? `${linkSummary.externalHttpsCount || linkSummary.insecureHttpCount || linkSummary.mailtoCount ? "；" : ""}${exampleLinks} 个示例链接未替换` : ""}。`,
       status: "warning",
     });
   else
     issues.push({
       id: "links",
       label: "正文链接",
-      detail: linkMatches.length ? `${linkMatches.length} 个链接已完成基础检查。` : "正文没有外部链接。",
+      detail: "正文没有需要处理的外部链接。",
       status: "pass",
     });
 

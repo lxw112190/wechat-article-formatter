@@ -69,6 +69,8 @@ export function AppView(props: AppViewProps) {
         onExportBackup={() => void backup.exportCompleteBackup()}
         onImportBackup={backup.importCompleteBackup}
         onExportHtml={presentation.exportHtml}
+        onExportWord={presentation.exportWord}
+        wordExporting={presentation.wordExporting}
         onPrint={presentation.printOrSavePdf}
         onCopy={() => void clipboard.copyForWechat()}
       />
@@ -158,6 +160,8 @@ export function AppView(props: AppViewProps) {
           localImageCount={presentation.localAssets.length}
           onCopyField={(key, value) => void clipboard.copyPlainField(key, value)}
           onPrint={presentation.printOrSavePdf}
+          onExportWord={presentation.exportWord}
+          wordExporting={presentation.wordExporting}
           onThemeChange={presentation.setThemeId}
           onCreateThemeDraft={presentation.createThemeDraft}
           onEditThemeDraft={presentation.editThemeDraft}
