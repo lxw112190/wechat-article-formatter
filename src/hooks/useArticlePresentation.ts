@@ -15,6 +15,7 @@ import {
 import { openPrintPreview } from "../services/print";
 import { exportWordDocument, loadWordExportSettings, normalizeWordExportSettings, saveWordExportSettings } from "../services/word";
 import type { WordExportSettings } from "../services/word";
+import { exportWordCompatibleHtml } from "../services/wordHtml";
 import { useThemeLibrary } from "./useThemeLibrary";
 
 type UseArticlePresentationOptions = {
@@ -29,6 +30,7 @@ type UseArticlePresentationOptions = {
 export function useArticlePresentation(options: UseArticlePresentationOptions) {
   const themeLibrary = useThemeLibrary(options.onError);
   const [wordExporting, setWordExporting] = useState(false);
+  const [wordHtmlExporting, setWordHtmlExporting] = useState(false);
   const [wordExportOpen, setWordExportOpen] = useState(false);
   const [wordSettings, setWordSettingsState] = useState(() => loadWordExportSettings(window.localStorage));
   const { theme } = themeLibrary;
@@ -90,6 +92,19 @@ export function useArticlePresentation(options: UseArticlePresentationOptions) {
     }
   }
 
+  async function exportWordHtml() {
+    if (wordHtmlExporting) return;
+    setWordHtmlExporting(true);
+    try {
+      await exportWordCompatibleHtml({ title: options.title, bodyHtml, theme, settings: wordSettings });
+      setWordExportOpen(false);
+    } catch (error) {
+      options.onError(error instanceof Error ? `Word 兼容 HTML 导出失败：${error.message}` : "Word 兼容 HTML 导出失败。");
+    } finally {
+      setWordHtmlExporting(false);
+    }
+  }
+
   return {
     ...themeLibrary,
     outline,
@@ -107,6 +122,8 @@ export function useArticlePresentation(options: UseArticlePresentationOptions) {
     printOrSavePdf,
     exportWord,
     wordExporting,
+    wordHtmlExporting,
+    exportWordHtml,
     wordExportOpen,
     setWordExportOpen,
     wordSettings,

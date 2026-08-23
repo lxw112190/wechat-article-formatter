@@ -85,6 +85,11 @@ test("Word export downloads a docx file", async ({ page }) => {
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/\.docx$/);
   expect((await download.createReadStream()) !== null).toBe(true);
+  await page.getByRole("button", { name: "导出 Word", exact: true }).first().click();
+  const htmlDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 Word 兼容 HTML" }).click();
+  const htmlDownload = await htmlDownloadPromise;
+  expect(htmlDownload.suggestedFilename()).toMatch(/Word兼容版\.html$/);
 });
 
 test("WeChat copy keeps external URLs and task state", async ({ page, context }) => {

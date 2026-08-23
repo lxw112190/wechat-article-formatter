@@ -5,9 +5,11 @@ type WordExportDialogProps = {
   open: boolean;
   settings: WordExportSettings;
   exporting: boolean;
+  htmlExporting: boolean;
   onChange: (settings: WordExportSettings) => void;
   onClose: () => void;
   onExport: () => void | Promise<void>;
+  onExportHtml: () => void | Promise<void>;
 };
 
 const presetOptions: Array<{ id: WordExportPreset; label: string; detail: string }> = [
@@ -195,13 +197,16 @@ export function WordExportDialog(props: WordExportDialogProps) {
         </div>
 
         <footer className="wordExportFooter">
-          <p>设置会保存在当前浏览器。WebP、SVG 图片会在导出时自动转换为 Word 兼容格式。</p>
+          <p>`.docx` 适合继续编辑；兼容 HTML 外观更接近网页/PDF，可用 Word 或 WPS 打开后“另存为 .docx”。</p>
           <div>
             <button type="button" onClick={props.onClose}>
               取消
             </button>
             <button className="primaryButton" type="button" disabled={props.exporting} onClick={() => void props.onExport()}>
               {props.exporting ? "正在生成 Word…" : "导出 .docx"}
+            </button>
+            <button type="button" disabled={props.htmlExporting} onClick={() => void props.onExportHtml()}>
+              {props.htmlExporting ? "正在生成 HTML…" : "导出 Word 兼容 HTML"}
             </button>
           </div>
         </footer>

@@ -223,9 +223,11 @@ export function AppView(props: AppViewProps) {
         open={presentation.wordExportOpen}
         settings={presentation.wordSettings}
         exporting={presentation.wordExporting}
+        htmlExporting={presentation.wordHtmlExporting}
         onChange={presentation.updateWordSettings}
         onClose={() => presentation.setWordExportOpen(false)}
         onExport={presentation.exportWord}
+        onExportHtml={presentation.exportWordHtml}
       />
     </main>
   );
