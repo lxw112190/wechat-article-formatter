@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent, Dispatch, SetStateAction } from "react";
+import { detectPasteContent } from "../markdown/pasteDetector";
 import { convertPastedHtml } from "../markdown/pasteConverter";
 import type { PreflightIssue } from "../types";
 
@@ -33,6 +34,39 @@ export function useClipboard({
     },
     [],
   );
+
+  function clearPasteMessage() {
+    if (pasteTimerRef.current) {
+      window.clearTimeout(pasteTimerRef.current);
+      pasteTimerRef.current = null;
+    }
+    setPasteMessage("");
+  }
+
+  function showPasteMessage(message: string) {
+    if (pasteTimerRef.current) window.clearTimeout(pasteTimerRef.current);
+    setPasteMessage(message);
+    pasteTimerRef.current = window.setTimeout(() => {
+      setPasteMessage("");
+      pasteTimerRef.current = null;
+    }, 3600);
+  }
+
+  function insertConvertedContent(textarea: HTMLTextAreaElement, content: string) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const multiline = content.includes("\n");
+    const leading = multiline && start > 0 && markdown[start - 1] !== "\n" ? "\n\n" : "";
+    const trailing = multiline && end < markdown.length && markdown[end] !== "\n" ? "\n\n" : "";
+    const insertion = `${leading}${content}${trailing}`;
+    setMarkdown(`${markdown.slice(0, start)}${insertion}${markdown.slice(end)}`);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const position = start + insertion.length - trailing.length;
+      textarea.selectionStart = position;
+      textarea.selectionEnd = position;
+    });
+  }
 
   async function copyForWechat() {
     if (
@@ -75,43 +109,33 @@ export function useClipboard({
   }
 
   function handleEditorPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const plainText = event.clipboardData.getData("text/plain");
     const html = event.clipboardData.getData("text/html");
     const imageFiles = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
       .filter((file): file is File => Boolean(file));
-    if (!html.trim() && imageFiles.length) {
+    if (!plainText.trim() && !html.trim() && imageFiles.length) {
       event.preventDefault();
+      clearPasteMessage();
       void addImageFiles(imageFiles);
       return;
     }
-    if (!html.trim()) return;
+
+    const detection = detectPasteContent(plainText, html);
+    if (detection.type === "markdown" || detection.type === "plain-text") {
+      clearPasteMessage();
+      return;
+    }
+
     const converted = convertPastedHtml(html);
-    const content = converted.markdown || event.clipboardData.getData("text/plain");
+    const content = converted.markdown || plainText;
     if (!content) return;
 
     event.preventDefault();
-    const textarea = event.currentTarget;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const multiline = content.includes("\n");
-    const leading = multiline && start > 0 && markdown[start - 1] !== "\n" ? "\n\n" : "";
-    const trailing = multiline && end < markdown.length && markdown[end] !== "\n" ? "\n\n" : "";
-    const insertion = `${leading}${content}${trailing}`;
-    setMarkdown(`${markdown.slice(0, start)}${insertion}${markdown.slice(end)}`);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.selectionStart = textarea.selectionEnd = start + insertion.length - trailing.length;
-    });
-
-    if (pasteTimerRef.current) window.clearTimeout(pasteTimerRef.current);
-    setPasteMessage(
-      `已清理${converted.source}格式并转换为 Markdown${converted.skippedImages ? `；${converted.skippedImages} 张本地图片需重新上传` : ""}`,
-    );
-    pasteTimerRef.current = window.setTimeout(() => {
-      setPasteMessage("");
-      pasteTimerRef.current = null;
-    }, 3600);
+    insertConvertedContent(event.currentTarget, content);
+    const prefix = detection.type === "word" ? "已将 Word 内容转换为 Markdown" : "检测到富文本，已转换为 Markdown";
+    showPasteMessage(`${prefix}${converted.skippedImages ? `；${converted.skippedImages} 张本地图片需重新上传` : ""}`);
   }
 
   return { copied, fieldCopied, pasteMessage, copyForWechat, copyPlainField, handleEditorPaste };

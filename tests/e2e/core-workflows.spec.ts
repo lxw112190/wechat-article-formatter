@@ -103,6 +103,59 @@ test("WeChat copy keeps external URLs and task state", async ({ page, context })
   expect(clipboard).toContain("☐");
 });
 
+async function writeClipboard(page: import("@playwright/test").Page, text: string, html: string) {
+  await page.evaluate(
+    async ({ text: value, html: markup }) => {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([value], { type: "text/plain" }),
+          "text/html": new Blob([markup], { type: "text/html" }),
+        }),
+      ]);
+    },
+    { text, html },
+  );
+}
+
+test("Markdown clipboard content is pasted byte-for-byte with an HTML wrapper", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const markdown = "## Markdown 粘贴测试\n\n这是 **粗体** 和 `code`。\n\n- [x] 完成\n- [ ] 待办";
+  await writeClipboard(page, markdown, `<pre><span>${markdown}</span></pre>`);
+  const textarea = page.locator("textarea.markdownInput");
+  await textarea.fill("");
+  await textarea.click();
+  await textarea.press("Control+V");
+  await expect(textarea).toHaveValue(markdown);
+  await expect(page.locator(".pasteNotice")).toHaveCount(0);
+});
+
+test("rich HTML clipboard content is converted with a rich-text message", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await writeClipboard(
+    page,
+    "这是重要内容，点击项目地址",
+    '<p>这是<strong>重要</strong>内容，<a href="https://github.com/demo">项目地址</a></p>',
+  );
+  const textarea = page.locator("textarea.markdownInput");
+  await textarea.fill("");
+  await textarea.click();
+  await textarea.press("Control+V");
+  await expect(textarea).toContainText("这是**重要**内容");
+  await expect(textarea).toContainText("[项目地址](https://github.com/demo)");
+  await expect(page.getByText("检测到富文本，已转换为 Markdown")).toBeVisible();
+});
+
+test("Word clipboard content is converted with a Word-specific message", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await writeClipboard(page, "Word 正文", '<p class="MsoNormal">Word <b>正文</b></p>');
+  const textarea = page.locator("textarea.markdownInput");
+  await textarea.fill("");
+  await textarea.click();
+  await textarea.press("Control+V");
+  await expect(textarea).toContainText("Word **正文**");
+  await expect(page.getByText("已将 Word 内容转换为 Markdown")).toBeVisible();
+});
+
 test("copy HTML uses an image ID placeholder instead of Base64", async ({ page, context }) => {
   page.on("dialog", (dialog) => dialog.accept());
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);

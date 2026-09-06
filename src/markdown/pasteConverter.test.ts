@@ -8,7 +8,6 @@ describe("convertPastedHtml", () => {
     const result = convertPastedHtml(
       '<p class="MsoListParagraph" style="mso-list:l0 level1 lfo1"><span style="mso-list:Ignore">1. </span>第一项</p><p style="display:none">隐藏</p>',
     );
-    expect(result.source).toBe("Word");
     expect(result.markdown).toContain("1. 第一项");
     expect(result.markdown).not.toContain("隐藏");
   });

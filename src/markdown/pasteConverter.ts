@@ -69,7 +69,6 @@ function normalizeOfficeLists(root: HTMLElement) {
 }
 
 export function convertPastedHtml(html: string) {
-  const source = /Mso|mso-|urn:schemas-microsoft-com:office|<o:/i.test(html) ? "Word" : "网页";
   const sanitized = DOMPurify.sanitize(html, {
     FORBID_TAGS: ["script", "style", "noscript", "iframe", "object", "embed", "form", "button"],
   });
@@ -126,5 +125,5 @@ export function convertPastedHtml(html: string) {
     .replace(/^(\s*(?:\d+\.|[-*+]))\s{2,}/gm, "$1 ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { markdown, skippedImages, source };
+  return { markdown, skippedImages };
 }
