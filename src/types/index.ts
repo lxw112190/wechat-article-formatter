@@ -34,6 +34,10 @@ export type Theme = {
   linkStyle: "underline" | "bottom-border" | "plain";
   blockquoteStyle: "left-bar" | "card" | "quote";
   codeStyle: "soft" | "dark" | "bordered";
+  codeHighlightTheme: "none" | "github" | "vscode";
+  codeFontSize: number;
+  codeLineHeight: number;
+  codeCleanMode: "safe" | "compact";
   tableStyle: "soft-header" | "accent-header" | "minimal";
   imageStyle: "rounded" | "square" | "shadow";
   dividerStyle: "solid" | "dashed" | "dotted";

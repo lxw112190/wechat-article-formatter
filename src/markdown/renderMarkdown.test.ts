@@ -62,6 +62,19 @@ describe("Markdown rendering", () => {
     expect(code.textContent).toContain("Stable C ABI");
   });
 
+  it("highlights known fenced languages with inline token styles", () => {
+    const html = renderMarkdown("```javascript\nconst answer = 42;\n```", themes[0]);
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    expect(template.content.querySelector("[data-code-language='javascript']")).not.toBeNull();
+    expect(template.content.querySelector("span[data-code-token='keyword']")?.getAttribute("style")).toContain("color");
+  });
+
+  it("leaves text blocks unhighlighted", () => {
+    const html = renderMarkdown("```text\nconst answer = 42;\n```", themes[0]);
+    expect(html).not.toContain("data-code-token");
+  });
+
   it("applies expanded typography, heading and list settings", () => {
     const customTheme = {
       ...themes[0],

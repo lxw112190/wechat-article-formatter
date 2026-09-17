@@ -1,0 +1,31 @@
+export type CodeHighlightTheme = "none" | "github" | "vscode";
+export const codeHighlightThemes: Record<Exclude<CodeHighlightTheme, "none">, Record<string, string>> = {
+  github: {
+    keyword: "#cf222e",
+    string: "#0a3069",
+    number: "#0550ae",
+    comment: "#6e7781",
+    title: "#8250df",
+    built_in: "#953800",
+    type: "#953800",
+    variable: "#24292f",
+    meta: "#0550ae",
+    tag: "#116329",
+    attr: "#953800",
+    regexp: "#0a3069",
+  },
+  vscode: {
+    keyword: "#569cd6",
+    string: "#ce9178",
+    number: "#b5cea8",
+    comment: "#6a9955",
+    title: "#dcdcaa",
+    built_in: "#4ec9b0",
+    type: "#4ec9b0",
+    variable: "#9cdcfe",
+    meta: "#c586c0",
+    tag: "#569cd6",
+    attr: "#9cdcfe",
+    regexp: "#d16969",
+  },
+};

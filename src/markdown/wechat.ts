@@ -58,6 +58,11 @@ export function prepareWechatHtml(bodyHtml: string, theme: Theme) {
   template.content.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
     input.replaceWith(document.createTextNode(input.checked ? "☑ " : "☐ "));
   });
+  template.content.querySelectorAll<HTMLElement>("*").forEach((element) => {
+    [...element.attributes]
+      .filter((attribute) => attribute.name.startsWith("data-code-"))
+      .forEach((attribute) => element.removeAttribute(attribute.name));
+  });
   flattenNestedListsForWechat(template.content, theme);
   return template.innerHTML;
 }

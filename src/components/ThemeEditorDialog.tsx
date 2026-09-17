@@ -289,6 +289,48 @@ export function ThemeEditorDialog({ theme, onClose, onSave }: ThemeEditorDialogP
                     </select>
                   </label>
                   <label>
+                    <span>代码高亮</span>
+                    <select
+                      value={draft.codeHighlightTheme ?? "none"}
+                      onChange={(event) => update("codeHighlightTheme", event.target.value as Theme["codeHighlightTheme"])}
+                    >
+                      <option value="none">关闭高亮</option>
+                      <option value="github">GitHub</option>
+                      <option value="vscode">VS Code</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>代码字号</span>
+                    <input
+                      type="number"
+                      min="11"
+                      max="24"
+                      value={draft.codeFontSize ?? 14}
+                      onChange={(event) => update("codeFontSize", Number(event.target.value))}
+                    />
+                  </label>
+                  <label>
+                    <span>代码行距</span>
+                    <input
+                      type="number"
+                      min="1.2"
+                      max="2.4"
+                      step="0.05"
+                      value={draft.codeLineHeight ?? 1.7}
+                      onChange={(event) => update("codeLineHeight", Number(event.target.value))}
+                    />
+                  </label>
+                  <label>
+                    <span>整理模式</span>
+                    <select
+                      value={draft.codeCleanMode ?? "safe"}
+                      onChange={(event) => update("codeCleanMode", event.target.value as Theme["codeCleanMode"])}
+                    >
+                      <option value="safe">安全（仅去空行）</option>
+                      <option value="compact">紧凑（合并空行）</option>
+                    </select>
+                  </label>
+                  <label>
                     <span>表格样式</span>
                     <select value={draft.tableStyle} onChange={(event) => update("tableStyle", event.target.value as Theme["tableStyle"])}>
                       <option value="soft-header">浅色表头</option>

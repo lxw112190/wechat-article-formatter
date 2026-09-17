@@ -8,7 +8,7 @@ import { normalizeWordExportSettings } from "./word";
 import type { WordExportSettings } from "./word";
 
 export const backupFormat = "wechat-article-backup";
-export const backupVersion = 5;
+export const backupVersion = 6;
 
 export const backupLimits = {
   maxCompressedBytes: 200 * 1024 * 1024,

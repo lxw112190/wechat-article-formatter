@@ -3,6 +3,7 @@ import type { ClipboardEvent as ReactClipboardEvent, Dispatch, SetStateAction } 
 import { detectPasteContent } from "../markdown/pasteDetector";
 import { convertPastedHtml } from "../markdown/pasteConverter";
 import type { PreflightIssue } from "../types";
+import { findCodeBlockAtPosition } from "../markdown/codeBlock";
 
 type UseClipboardOptions = {
   markdown: string;
@@ -119,6 +120,21 @@ export function useClipboard({
       event.preventDefault();
       clearPasteMessage();
       void addImageFiles(imageFiles);
+      return;
+    }
+
+    const codeBlock = findCodeBlockAtPosition(markdown, event.currentTarget.selectionStart);
+    if (codeBlock && plainText) {
+      event.preventDefault();
+      const start = event.currentTarget.selectionStart;
+      const end = event.currentTarget.selectionEnd;
+      const normalized = plainText.replace(/\r\n?/g, "\n");
+      setMarkdown(`${markdown.slice(0, start)}${normalized}${markdown.slice(end)}`);
+      requestAnimationFrame(() => {
+        event.currentTarget.focus();
+        event.currentTarget.selectionStart = event.currentTarget.selectionEnd = start + normalized.length;
+      });
+      showPasteMessage("已按代码块纯文本方式粘贴");
       return;
     }
 

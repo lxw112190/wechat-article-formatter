@@ -3,7 +3,7 @@ import { defaultTheme } from "../themes/themes";
 
 export const customThemeStorageKey = "wechat-publisher-custom-themes";
 export const themeFileFormat = "wechat-article-theme";
-export const themeFileVersion = 2;
+export const themeFileVersion = 3;
 
 type ThemeFile = {
   format: typeof themeFileFormat;
@@ -23,6 +23,8 @@ const enumValues = {
   linkStyle: ["underline", "bottom-border", "plain"],
   blockquoteStyle: ["left-bar", "card", "quote"],
   codeStyle: ["soft", "dark", "bordered"],
+  codeHighlightTheme: ["none", "github", "vscode"],
+  codeCleanMode: ["safe", "compact"],
   tableStyle: ["soft-header", "accent-header", "minimal"],
   imageStyle: ["rounded", "square", "shadow"],
   dividerStyle: ["solid", "dashed", "dotted"],
@@ -105,6 +107,14 @@ export function normalizeTheme(value: unknown, fallback: Theme = defaultTheme): 
     linkStyle: enumValue(source.linkStyle, enumValues.linkStyle, fallback.linkStyle),
     blockquoteStyle: enumValue(source.blockquoteStyle, enumValues.blockquoteStyle, fallback.blockquoteStyle),
     codeStyle: enumValue(source.codeStyle, enumValues.codeStyle, fallback.codeStyle),
+    codeHighlightTheme: enumValue(
+      source.codeHighlightTheme,
+      enumValues.codeHighlightTheme,
+      source.codeHighlightTheme === undefined ? "none" : (fallback.codeHighlightTheme ?? "none"),
+    ),
+    codeFontSize: numberInRange(source.codeFontSize, fallback.codeFontSize ?? 14, 11, 24),
+    codeLineHeight: numberInRange(source.codeLineHeight, fallback.codeLineHeight ?? 1.7, 1.2, 2.4, 0.05),
+    codeCleanMode: enumValue(source.codeCleanMode, enumValues.codeCleanMode, fallback.codeCleanMode ?? "safe"),
     tableStyle: enumValue(source.tableStyle, enumValues.tableStyle, fallback.tableStyle),
     imageStyle: enumValue(source.imageStyle, enumValues.imageStyle, fallback.imageStyle),
     dividerStyle: enumValue(source.dividerStyle, enumValues.dividerStyle, fallback.dividerStyle),

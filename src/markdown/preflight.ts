@@ -2,6 +2,7 @@ import type { ImageAsset } from "../imageAssets";
 import type { OutlineItem, PreflightIssue } from "../types";
 import { getLocalAssetReferences } from "./assets";
 import { summarizeMarkdownLinks } from "./links";
+import { normalizeCodeLanguage } from "./codeLanguages";
 
 export function inspectBeforePublish(
   title: string,
@@ -126,6 +127,32 @@ export function inspectBeforePublish(
       status: "warning",
     });
   else issues.push({ id: "compatibility", label: "移动端兼容", detail: "未发现表格或复杂 HTML 内容。", status: "pass" });
+
+  const codeBlocks = [...markdown.matchAll(/^\s*(`{3,}|~{3,})\s*([^\r\n]*)\r?\n/gm)];
+  const unspecifiedCode = codeBlocks.filter(
+    (match) => !normalizeCodeLanguage(match[2]) || normalizeCodeLanguage(match[2]) === "text",
+  ).length;
+  const boundaryWhitespace = codeBlocks.filter((match) => {
+    const contentStart = (match.index ?? 0) + match[0].length;
+    const close = markdown.slice(contentStart).search(new RegExp(`\\n\\s*${match[1]}\\s*(?:\\r?\\n|$)`));
+    if (close < 0) return false;
+    const content = markdown.slice(contentStart, contentStart + close);
+    return /^\n|\n$/.test(content);
+  }).length;
+  if (unspecifiedCode || boundaryWhitespace)
+    issues.push({
+      id: "code",
+      label: "代码块",
+      detail: `${unspecifiedCode ? `${unspecifiedCode} 个代码块未指定语言` : ""}${unspecifiedCode && boundaryWhitespace ? "；" : ""}${boundaryWhitespace ? `${boundaryWhitespace} 个代码块首尾有多余空行` : ""}。`,
+      status: "warning",
+    });
+  else
+    issues.push({
+      id: "code",
+      label: "代码块",
+      detail: codeBlocks.length ? `已检查 ${codeBlocks.length} 个代码块。` : "正文没有代码块。",
+      status: "pass",
+    });
 
   return issues;
 }

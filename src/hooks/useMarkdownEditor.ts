@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { cleanCode } from "../markdown/codeCleaner";
+import { ensureBlockSeparation } from "../markdown/codeBlock";
+import { findCodeBlockAtPosition } from "../markdown/codeBlock";
 
 export const formatGroups = [
   {
@@ -101,6 +104,42 @@ export function useMarkdownEditor({ markdown, setMarkdown }: UseMarkdownEditorOp
     });
   }
 
+  function insertCodeBlock(language = "text", shouldClean = true) {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = markdown.slice(start, end) || "代码内容";
+    const code = shouldClean ? cleanCode(selected) : selected.replace(/\r\n?/g, "\n");
+    const block = `\`\`\`${language}\n${code}\n\`\`\``;
+    const result = ensureBlockSeparation(markdown, start, end, block);
+    setMarkdown(result.markdown);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = result.caret;
+    });
+  }
+
+  function changeCodeLanguage(language: string) {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const block = findCodeBlockAtPosition(markdown, textarea.selectionStart);
+    if (!block) return;
+    const openingText = markdown.slice(block.start, block.contentStart);
+    const firstLine = openingText.split(/\r?\n/, 1)[0] ?? "```";
+    const fence = firstLine.match(/^(\s*)(`{3,}|~{3,})/) ?? ["", "", "```"];
+    const opening = `${fence[1]}${fence[2]}${language}\n`;
+    setMarkdown(`${markdown.slice(0, block.start)}${opening}${markdown.slice(block.contentStart)}`);
+  }
+
+  function cleanCurrentCodeBlock() {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const block = findCodeBlockAtPosition(markdown, textarea.selectionStart);
+    if (!block) return;
+    setMarkdown(`${markdown.slice(0, block.contentStart)}${cleanCode(block.code)}${markdown.slice(block.contentEnd)}`);
+  }
+
   function applyFormat(value: string) {
     const actions: Record<string, () => void> = {
       bold: () => insertMarkdown("**", "**"),
@@ -119,7 +158,7 @@ export function useMarkdownEditor({ markdown, setMarkdown }: UseMarkdownEditorOp
       link: () => insertMarkdown("[", "](https://example.com)", "链接文字"),
       image: () => imageInputRef.current?.click(),
       inlineCode: () => insertMarkdown("`", "`", "代码"),
-      codeBlock: () => insertMarkdown("```text\n", "\n```", "代码块"),
+      codeBlock: () => insertCodeBlock(),
       table: () => insertBlock("| 表头一 | 表头二 | 表头三 |\n| --- | :---: | ---: |\n| 内容 | 居中 | 右对齐 |"),
       hr: () => insertBlock("---"),
       hardBreak: () => insertMarkdown("", "  \n", "上一行内容"),
@@ -139,6 +178,9 @@ export function useMarkdownEditor({ markdown, setMarkdown }: UseMarkdownEditorOp
     setFormatOpen,
     setDragActive,
     insertBlock,
+    insertCodeBlock,
+    changeCodeLanguage,
+    cleanCurrentCodeBlock,
     applyFormat,
   };
 }

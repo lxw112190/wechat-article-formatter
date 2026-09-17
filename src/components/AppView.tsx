@@ -106,6 +106,9 @@ export function AppView(props: AppViewProps) {
           formatOpen={editor.formatOpen}
           setFormatOpen={editor.setFormatOpen}
           applyFormat={editor.applyFormat}
+          onInsertCodeBlock={editor.insertCodeBlock}
+          onChangeCodeLanguage={editor.changeCodeLanguage}
+          onCleanCurrentCodeBlock={editor.cleanCurrentCodeBlock}
           storageError={library.storageError}
           isDirty={library.isDirty}
           hasUnsavedChanges={library.hasUnsavedChanges}

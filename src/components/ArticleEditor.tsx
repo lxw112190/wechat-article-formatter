@@ -6,11 +6,13 @@ import type {
   RefObject,
   SetStateAction,
 } from "react";
+import { useState } from "react";
 import { formatGroups } from "../hooks/useMarkdownEditor";
 import type { ImageAsset } from "../imageAssets";
 import type { OutlineItem } from "../types";
 import { ImageAssetPanel } from "./ImageAssetPanel";
 import { OutlinePanel } from "./OutlinePanel";
+import { codeLanguages } from "../markdown/codeLanguages";
 
 type ArticleEditorProps = {
   activeId: string;
@@ -27,6 +29,9 @@ type ArticleEditorProps = {
   formatOpen: boolean;
   setFormatOpen: Dispatch<SetStateAction<boolean>>;
   applyFormat: (value: string) => void;
+  onInsertCodeBlock: (language: string, clean: boolean) => void;
+  onChangeCodeLanguage: (language: string) => void;
+  onCleanCurrentCodeBlock: () => void;
   storageError: boolean;
   isDirty: boolean;
   hasUnsavedChanges: boolean;
@@ -64,6 +69,10 @@ type ArticleEditorProps = {
 
 export function ArticleEditor(props: ArticleEditorProps) {
   const { textareaRef, imageInputRef, replaceImageInputRef, formatRef } = props;
+  const [codePickerOpen, setCodePickerOpen] = useState(false);
+  const [codePickerMode, setCodePickerMode] = useState<"insert" | "change">("insert");
+  const [codeLanguage, setCodeLanguage] = useState("text");
+  const [cleanCodeOnInsert, setCleanCodeOnInsert] = useState(true);
   return (
     <section className={`editorPanel${props.dragActive ? " isDragging" : ""}`} aria-label="Markdown 编辑器">
       <div className="panelHead">
@@ -123,8 +132,28 @@ export function ArticleEditor(props: ArticleEditorProps) {
             <button type="button" title="行内代码" onClick={() => props.applyFormat("inlineCode")}>
               {"</>"}
             </button>
-            <button type="button" title="代码块" onClick={() => props.applyFormat("codeBlock")}>
+            <button
+              type="button"
+              title="代码块"
+              onClick={() => {
+                setCodePickerMode("insert");
+                setCodePickerOpen(true);
+              }}
+            >
               {"{ }"}
+            </button>
+            <button type="button" title="整理当前代码块" onClick={props.onCleanCurrentCodeBlock}>
+              整理
+            </button>
+            <button
+              type="button"
+              title="更改当前代码块语言"
+              onClick={() => {
+                setCodePickerMode("change");
+                setCodePickerOpen(true);
+              }}
+            >
+              语言
             </button>
             <button type="button" title="上传并压缩图片" disabled={props.imageProcessing} onClick={() => imageInputRef.current?.click()}>
               {props.imageProcessing ? "处理中" : "图片"}
@@ -154,6 +183,45 @@ export function ArticleEditor(props: ArticleEditorProps) {
               )}
             </div>
           </div>
+          {codePickerOpen && (
+            <div className="codePicker" role="dialog" aria-label="插入代码块">
+              <div className="codePickerHead">
+                <strong>{codePickerMode === "insert" ? "插入代码块" : "更改代码语言"}</strong>
+                <button type="button" onClick={() => setCodePickerOpen(false)}>
+                  ×
+                </button>
+              </div>
+              <label>
+                语言
+                <select value={codeLanguage} onChange={(event) => setCodeLanguage(event.target.value)}>
+                  {codeLanguages.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="codePickerCheck">
+                <input type="checkbox" checked={cleanCodeOnInsert} onChange={(event) => setCleanCodeOnInsert(event.target.checked)} />{" "}
+                自动整理代码
+              </label>
+              <div className="codePickerActions">
+                <button type="button" onClick={() => setCodePickerOpen(false)}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (codePickerMode === "insert") props.onInsertCodeBlock(codeLanguage, cleanCodeOnInsert);
+                    else props.onChangeCodeLanguage(codeLanguage);
+                    setCodePickerOpen(false);
+                  }}
+                >
+                  插入
+                </button>
+              </div>
+            </div>
+          )}
           {(props.pasteMessage || props.imageMessage) && (
             <div className="pasteNotice" role="status">
               {props.imageMessage || props.pasteMessage}

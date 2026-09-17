@@ -540,3 +540,70 @@ select:focus {
   font-weight: 700;
   line-height: 1.55;
 }
+.codePicker {
+  margin: 8px 0;
+  padding: 14px;
+  border: 1px solid var(--border, #d0d5dd);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.1);
+  display: grid;
+  gap: 10px;
+  max-width: 360px;
+}
+.codePickerHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.codePickerHead button {
+  border: 0;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+}
+.codePicker label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  color: #475467;
+}
+.codePicker select {
+  padding: 7px 9px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  background: #fff;
+}
+.codePickerCheck {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.codePickerCheck input[type="checkbox"] {
+  flex: 0 0 14px;
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--green);
+}
+.codePickerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.codePickerActions button {
+  padding: 7px 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.codePickerActions button:last-child {
+  border-color: #12b76a;
+  background: #12b76a;
+  color: #fff;
+}
