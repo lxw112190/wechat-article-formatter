@@ -1,6 +1,6 @@
 {
   "name": "wechat-article-formatter",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
