@@ -42,3 +42,55 @@ jobs:
             SHA256SUMS
           if-no-files-found: error
           retention-days: 30
+
+  package-windows:
+    name: Package Windows EXE
+    needs: quality
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      WEB2APP_VERSION: v0.2.7
+      WEB2APP_SHA256: 2a51f2dbda1df01cdfb3209fffaffdc85305ae4b1ad482dbec06e2c130883240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Download verified lw.Web2App packer
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'lw.Web2App-windows-x64.zip'
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'lw.Web2App'
+          $downloadUrl = "https://github.com/lxw112190/lw.Web2App/releases/download/$env:WEB2APP_VERSION/lw.Web2App-windows-x64.zip"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $archive
+          $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:WEB2APP_SHA256) {
+            throw "lw.Web2App checksum mismatch: $actualHash"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
+          if (-not (Test-Path -LiteralPath (Join-Path $extractRoot 'lw.Web2App.exe'))) {
+            throw 'lw.Web2App.exe was not found in the verified release archive.'
+          }
+          "WEB2APP_ROOT=$extractRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Package and verify EXE
+        shell: pwsh
+        run: |
+          ./tools/package-web2app.ps1 -Web2AppRoot $env:WEB2APP_ROOT
+          $hash = (Get-FileHash -LiteralPath 'artifacts/wechat-article-formatter.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *wechat-article-formatter.exe" | Set-Content -LiteralPath 'artifacts/SHA256SUMS-windows.txt' -Encoding ascii
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechat-article-formatter-windows-x64
+          path: |
+            artifacts/wechat-article-formatter.exe
+            artifacts/SHA256SUMS-windows.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

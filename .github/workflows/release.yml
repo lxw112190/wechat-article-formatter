@@ -5,10 +5,11 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  verify-web:
+    name: Verify and package web build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -17,30 +18,107 @@ jobs:
         with:
           node-version: 20.19.0
           cache: npm
+      - name: Verify release tag matches package version
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          test "v${package_version}" = "$GITHUB_REF_NAME"
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+
       - name: Package static build
         run: |
           cd dist
-          zip -r ../wechat-article-formatter-${GITHUB_REF_NAME}.zip .
+          zip -r "../wechat-article-formatter-${GITHUB_REF_NAME}.zip" .
           cd ..
-          sha256sum wechat-article-formatter-${GITHUB_REF_NAME}.zip > SHA256SUMS
-      - name: Publish GitHub release
+          sha256sum "wechat-article-formatter-${GITHUB_REF_NAME}.zip" > SHA256SUMS-web.txt
+
+      - name: Upload web release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: |
+            wechat-article-formatter-${{ github.ref_name }}.zip
+            SHA256SUMS-web.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  package-windows:
+    name: Package Windows EXE
+    needs: verify-web
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      WEB2APP_VERSION: v0.2.7
+      WEB2APP_SHA256: 2a51f2dbda1df01cdfb3209fffaffdc85305ae4b1ad482dbec06e2c130883240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Download verified lw.Web2App packer
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'lw.Web2App-windows-x64.zip'
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'lw.Web2App'
+          $downloadUrl = "https://github.com/lxw112190/lw.Web2App/releases/download/$env:WEB2APP_VERSION/lw.Web2App-windows-x64.zip"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $archive
+          $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:WEB2APP_SHA256) {
+            throw "lw.Web2App checksum mismatch: $actualHash"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
+          if (-not (Test-Path -LiteralPath (Join-Path $extractRoot 'lw.Web2App.exe'))) {
+            throw 'lw.Web2App.exe was not found in the verified release archive.'
+          }
+          "WEB2APP_ROOT=$extractRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Package and verify EXE
+        shell: pwsh
+        run: |
+          $output = "artifacts/wechat-article-formatter-$env:GITHUB_REF_NAME-windows-x64.exe"
+          ./tools/package-web2app.ps1 -Web2AppRoot $env:WEB2APP_ROOT -OutputPath $output
+          $hash = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          $name = Split-Path -Leaf $output
+          "$hash *$name" | Set-Content -LiteralPath 'artifacts/SHA256SUMS-windows.txt' -Encoding ascii
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            artifacts/wechat-article-formatter-${{ github.ref_name }}-windows-x64.exe
+            artifacts/SHA256SUMS-windows.txt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    name: Publish GitHub Release
+    needs: [verify-web, package-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" \
-              "wechat-article-formatter-${GITHUB_REF_NAME}.zip" \
-              SHA256SUMS \
-              --clobber
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" \
-              "wechat-article-formatter-${GITHUB_REF_NAME}.zip" \
-              SHA256SUMS \
-              --verify-tag \
-              --generate-notes \
-              --title "$GITHUB_REF_NAME"
+            gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
           fi
