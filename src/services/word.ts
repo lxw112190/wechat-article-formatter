@@ -174,6 +174,18 @@ const headingLevels = [
 ];
 
 const cleanColor = (color: string) => color.replace("#", "").toUpperCase();
+function cssColorToHex(value: string) {
+  const normalized = value.trim();
+  if (/^#[\da-f]{6}$/i.test(normalized)) return normalized.slice(1).toUpperCase();
+  const rgb = normalized.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+  if (rgb)
+    return rgb
+      .slice(1, 4)
+      .map((channel) => Number(channel).toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase();
+  return undefined;
+}
 const pxToHalfPoints = (pixels: number) => Math.max(16, Math.round(pixels * 1.5));
 const pxToTwips = (pixels: number) => Math.max(0, Math.round(pixels * 15));
 const mmToTwips = (millimeters: number) => Math.round(millimeters * 56.6929);
@@ -341,7 +353,8 @@ function textRuns(text: string, theme: Theme, style: InlineStyle = {}): TextRun[
 
 function colorFromElement(element: HTMLElement) {
   const value = element.style.color.trim();
-  return value ? cleanColor(value) : undefined;
+  const hex = value ? cssColorToHex(value) : undefined;
+  return hex;
 }
 
 async function inlineChildren(

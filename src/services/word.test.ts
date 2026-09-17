@@ -43,6 +43,17 @@ describe("Word export", () => {
     expect(rels).toContain("https://github.com/demo");
   });
 
+  it("converts browser-normalized RGB token colors to Word hex colors", async () => {
+    const document = await buildWordDocument({
+      title: "高亮颜色",
+      bodyHtml: '<pre><code><span data-code-token="keyword" style="color: rgb(15, 81, 50);">const</span> value</code></pre>',
+      theme: themes[0],
+    });
+    const zip = await JSZip.loadAsync(await Packer.toBuffer(document));
+    const xml = (await zip.file("word/document.xml")?.async("string")) ?? "";
+    expect(xml).toContain("0F5132");
+  });
+
   it("sanitizes filenames and fits images proportionally", () => {
     expect(sanitizeFileName("测试:/文章*?")).toBe("测试--文章--");
     expect(fitImageSize(1200, 600, 560)).toEqual({ width: 560, height: 280 });
