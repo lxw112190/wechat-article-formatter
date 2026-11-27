@@ -44,18 +44,7 @@ export function formatLinkAsPlainText(text: string, href: string) {
   if (!target) return label;
   if (!label) return target;
   if (normalizeLinkText(label) === normalizeLinkText(target)) return label;
-  return `${label}（${target}）`;
-}
-
-export function replaceMarkdownLinksWithPlainText(markdown: string) {
-  return markdown
-    .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+[^)]*)?\)/g, (_match, alt: string) => (alt ? `【图片：${alt}】` : "【图片】"))
-    .replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+[^)]*)?\)/g, (_match, text: string, href: string) => formatLinkAsPlainText(text, href))
-    .replace(/<((?:https?:\/\/|mailto:)[^>]+)>/gi, (_match, href: string) => href.replace(/^mailto:/i, ""))
-    .replace(
-      /^(\s*[-*+]\s+)\[([ xX])\]\s+/gm,
-      (_match, prefix: string, checked: string) => `${prefix}${checked.trim().toLowerCase() === "x" ? "☑" : "☐"} `,
-    );
+  return `${label}\n${target}`;
 }
 
 export function summarizeMarkdownLinks(markdown: string): LinkSummary {

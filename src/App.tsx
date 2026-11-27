@@ -28,6 +28,7 @@ export default function App() {
   const editor = useMarkdownEditor({ markdown: library.markdown, setMarkdown: library.setMarkdown });
   const images = useImageAssets({
     activeId: library.activeId,
+    markdown: library.markdown,
     setMarkdown: library.setMarkdown,
     insertBlock: editor.insertBlock,
     replaceImageInputRef: editor.replaceImageInputRef,

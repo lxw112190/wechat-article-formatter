@@ -1,8 +1,9 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import type { Theme, ThemeHeadingLevel } from "../types";
-import { escapeHtml, localAssetPattern, prepareAssetMarkdown } from "./assets";
-import { replaceMarkdownLinksWithPlainText } from "./links";
+import { decodeAssetAlt, escapeHtml, localAssetPattern, prepareAssetMarkdown } from "./assets";
+import { isRelativeImagePath } from "./relativeImages";
+import { clipboardPlainText } from "./clipboardPlainText";
 import { prepareWechatHtml } from "./wechat";
 import { highlightCodeBlocks } from "./codeHighlight";
 
@@ -58,9 +59,21 @@ function getBlockquoteStyle(theme: Theme) {
   return `${common}border-left:4px solid ${theme.accent};background:${theme.accentSoft};`;
 }
 
+function createImagePlaceholder(theme: Theme, standalone: boolean) {
+  const placeholder = document.createElement(standalone ? "p" : "span");
+  if (standalone) placeholder.dataset.imagePlaceholder = "";
+  placeholder.setAttribute(
+    "style",
+    `${standalone ? "margin:0 0 8px;padding:4px 8px;text-indent:0;" : "padding:2px 4px;"}border:1px dashed ${theme.border};border-radius:6px;background:${theme.accentSoft};color:${theme.muted};font-size:13px;line-height:1.5;overflow-wrap:anywhere;`,
+  );
+  return placeholder;
+}
+
 export function stripMarkdown(value: string) {
   const template = document.createElement("template");
-  const withAssetLabels = value.replace(localAssetPattern, (_match, alt: string) => (alt ? `【图片：${alt}】` : "【图片】"));
+  const withAssetLabels = value.replace(localAssetPattern, (_match, alt: string) =>
+    alt ? `【图片：${decodeAssetAlt(alt)}】` : "【图片】",
+  );
   template.innerHTML = DOMPurify.sanitize(marked.parse(withAssetLabels, { async: false, gfm: true }));
   return (template.content.textContent ?? "").replace(/\s+/g, " ").trim();
 }
@@ -197,18 +210,25 @@ export function renderMarkdown(markdown: string, theme: Theme, assetUrls: Record
 
   template.content.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
     const assetId = image.dataset.assetId;
+    const source = image.getAttribute("src") ?? "";
+    const parent = image.parentElement;
+    const imageParagraph = parent?.tagName === "P" && parent.children.length === 1 && !parent.textContent?.trim() ? parent : null;
+    const standalone = imageParagraph !== null || image.parentNode === template.content;
+    if (!assetId && isRelativeImagePath(source)) {
+      const placeholder = createImagePlaceholder(theme, standalone);
+      placeholder.textContent = `【待关联图片：${source}${image.alt ? `；说明：${image.alt}` : ""}】`;
+      (imageParagraph ?? image).replaceWith(placeholder);
+      return;
+    }
     if (assetId) {
       const previewUrl = assetUrls[assetId];
       if (previewUrl) image.src = previewUrl;
       else {
-        const placeholder = document.createElement("section");
+        const placeholder = createImagePlaceholder(theme, standalone);
         placeholder.dataset.assetId = assetId;
-        placeholder.setAttribute(
-          "style",
-          `margin:8px 0 24px;padding:18px;border:1px dashed ${theme.border};border-radius:6px;background:${theme.accentSoft};color:${theme.muted};font-size:13px;line-height:1.7;text-align:center;`,
-        );
+        placeholder.dataset.assetAlt = image.alt;
         placeholder.textContent = `图片 ${assetId} 尚未在本机素材库中找到`;
-        image.replaceWith(placeholder);
+        (imageParagraph ?? image).replaceWith(placeholder);
         return;
       }
     }
@@ -216,11 +236,10 @@ export function renderMarkdown(markdown: string, theme: Theme, assetUrls: Record
       "style",
       `display:block;max-width:100%;height:auto;margin:0 auto;border-radius:${theme.imageStyle === "square" ? 0 : theme.radius}px;border:${theme.imageStyle === "shadow" ? "0" : `1px solid ${theme.border}`};box-shadow:${theme.imageStyle === "shadow" ? "0 10px 28px rgba(15,23,42,.16)" : "none"};`,
     );
-    const parent = image.parentElement;
-    if (parent?.tagName === "P" && parent.children.length === 1 && !(parent.textContent ?? "").trim()) {
+    if (imageParagraph) {
       const figure = document.createElement("figure");
       figure.setAttribute("style", `margin:8px 0 ${theme.imageSpacing}px;`);
-      parent.replaceWith(figure);
+      imageParagraph.replaceWith(figure);
       figure.append(image);
       if (image.alt) {
         const caption = document.createElement("figcaption");
@@ -269,14 +288,11 @@ function replaceLocalImagesWithIds(bodyHtml: string, theme: Theme) {
   template.content.querySelectorAll<HTMLElement>("[data-asset-id]").forEach((element) => {
     if (!element.isConnected && !template.content.contains(element)) return;
     const id = element.dataset.assetId ?? "未知图片";
-    const alt = element instanceof HTMLImageElement ? element.alt : "";
-    const placeholder = document.createElement("section");
-    placeholder.setAttribute(
-      "style",
-      `margin:8px 0 24px;padding:16px;border:1px dashed ${theme.border};border-radius:6px;background:${theme.accentSoft};color:${theme.heading};font-size:14px;line-height:1.7;text-align:center;`,
-    );
-    placeholder.innerHTML = `<strong style="display:block;margin-bottom:4px;">请上传图片：${escapeHtml(id)}</strong><span style="color:${theme.muted};font-size:12px;">${escapeHtml(alt || "无图片说明")}</span>`;
+    const alt = element instanceof HTMLImageElement ? element.alt : (element.dataset.assetAlt ?? "");
     const figure = element.closest("figure");
+    const standalone = Boolean(figure) || element.tagName === "P" || element.parentNode === template.content;
+    const placeholder = createImagePlaceholder(theme, standalone);
+    placeholder.innerHTML = `<strong style="color:${theme.heading};">请上传图片：${escapeHtml(id)}</strong>${alt ? `；说明：${escapeHtml(alt)}` : ""}`;
     (figure ?? element).replaceWith(placeholder);
   });
   template.content
@@ -310,13 +326,8 @@ export function buildExportHtml(title: string, bodyHtml: string, theme: Theme) {
 </html>`;
 }
 
-export function buildCopyPlainText(markdown: string) {
-  return stripMarkdown(
-    replaceMarkdownLinksWithPlainText(
-      markdown.replace(
-        localAssetPattern,
-        (_match, alt: string, id: string) => `\n\n【请上传图片：${id}${alt ? `；说明：${alt}` : ""}】\n\n`,
-      ),
-    ),
-  );
+export function buildCopyPlainText(bodyHtml: string, theme: Theme) {
+  const template = document.createElement("template");
+  template.innerHTML = replaceLocalImagesWithIds(bodyHtml, theme);
+  return clipboardPlainText(template.content);
 }

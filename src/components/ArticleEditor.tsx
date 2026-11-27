@@ -13,6 +13,7 @@ import type { OutlineItem } from "../types";
 import { ImageAssetPanel } from "./ImageAssetPanel";
 import { OutlinePanel } from "./OutlinePanel";
 import { codeLanguages } from "../markdown/codeLanguages";
+import type { RelativeImageReference } from "../markdown/relativeImages";
 
 type ArticleEditorProps = {
   activeId: string;
@@ -46,6 +47,7 @@ type ArticleEditorProps = {
   pasteMessage: string;
   imageMessage: string;
   imageAssets: ImageAsset[];
+  relativeImages: RelativeImageReference[];
   assetUrls: Record<string, string>;
   imageProcessing: boolean;
   onToggleOutline: () => void;
@@ -57,6 +59,7 @@ type ArticleEditorProps = {
   onDrop: (event: ReactDragEvent<HTMLTextAreaElement>) => void;
   onEditorScroll: (source: HTMLElement) => void;
   onImageInput: (event: ChangeEvent<HTMLInputElement>) => void;
+  onAssociateImage: (reference: RelativeImageReference, file: File) => void;
   onReplaceImageInput: (event: ChangeEvent<HTMLInputElement>) => void;
   onUpdateImageAlt: (id: string, value: string) => void;
   onSaveImageAlt: (id: string) => void;
@@ -256,9 +259,11 @@ export function ArticleEditor(props: ArticleEditorProps) {
           <ImageAssetPanel
             activeId={props.activeId}
             assets={props.imageAssets}
+            relativeImages={props.relativeImages}
             urls={props.assetUrls}
             processing={props.imageProcessing}
             onAdd={() => imageInputRef.current?.click()}
+            onAssociate={props.onAssociateImage}
             onUpdateAlt={props.onUpdateImageAlt}
             onSaveAlt={props.onSaveImageAlt}
             onInsert={props.onInsertImage}

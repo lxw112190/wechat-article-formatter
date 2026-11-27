@@ -426,6 +426,42 @@ select:focus {
   cursor: not-allowed;
   opacity: 0.55;
 }
+.relativeImageNotice {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #f1d89f;
+  border-radius: 8px;
+  background: #fffcf4;
+  color: #714e17;
+  font-size: 12px;
+}
+.relativeImageNotice p {
+  margin: 0 0 8px;
+}
+.relativeImageNotice ul {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.relativeImageNotice li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.relativeImageNotice code {
+  overflow-wrap: anywhere;
+}
+.relativeImageNotice button {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid #eed7a4;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+}
 .imageAssetList {
   display: grid;
   gap: 9px;

@@ -47,16 +47,40 @@ export function flattenNestedListsForWechat(root: DocumentFragment, theme: Theme
 export function prepareWechatHtml(bodyHtml: string, theme: Theme) {
   const template = document.createElement("template");
   template.innerHTML = bodyHtml;
+  template.content.querySelectorAll<HTMLParagraphElement>("p[data-image-placeholder]").forEach((placeholder) => {
+    const before = placeholder.previousElementSibling;
+    if (before instanceof HTMLParagraphElement && Number.parseFloat(before.style.marginBottom) > 8) before.style.marginBottom = "8px";
+    const after = placeholder.nextElementSibling;
+    if (after instanceof HTMLHeadingElement && Number.parseFloat(after.style.marginTop) > 12) after.style.marginTop = "12px";
+    placeholder.removeAttribute("data-image-placeholder");
+  });
   template.content.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((link) => {
     const href = link.getAttribute("href")?.trim() ?? "";
     if (!href || classifyLink(href) !== "wechat-article") {
-      link.replaceWith(document.createTextNode(formatLinkAsPlainText(link.textContent ?? "", href)));
+      if (link.querySelector("img")) {
+        link.replaceWith(...link.childNodes);
+        return;
+      }
+      const [label, url] = formatLinkAsPlainText(link.textContent ?? "", href).split("\n");
+      const next = link.nextSibling?.textContent;
+      const separator = href && next && !/^\s/.test(next) ? "\u00a0" : "";
+      if (url) link.replaceWith(label, document.createElement("br"), url + separator);
+      else link.replaceWith(label + separator);
       return;
     }
     link.removeAttribute("rel");
   });
   template.content.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
     input.replaceWith(document.createTextNode(input.checked ? "☑ " : "☐ "));
+  });
+  template.content.querySelectorAll<HTMLElement>("figcaption").forEach((caption) => {
+    const paragraph = document.createElement("p");
+    paragraph.setAttribute(
+      "style",
+      `margin:8px 0 0;text-align:${theme.imageCaptionAlign};text-indent:0;color:${theme.muted};font-size:${theme.imageCaptionSize}px;line-height:1.6;`,
+    );
+    paragraph.append(...caption.childNodes);
+    caption.replaceWith(paragraph);
   });
   template.content.querySelectorAll<HTMLElement>("*").forEach((element) => {
     [...element.attributes]

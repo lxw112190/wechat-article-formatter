@@ -1,12 +1,16 @@
+import { useRef } from "react";
 import { formatBytes } from "../app/formatters";
 import type { ImageAsset } from "../imageAssets";
+import type { RelativeImageReference } from "../markdown/relativeImages";
 
 type ImageAssetPanelProps = {
   activeId: string;
   assets: ImageAsset[];
+  relativeImages: RelativeImageReference[];
   urls: Record<string, string>;
   processing: boolean;
   onAdd: () => void;
+  onAssociate: (reference: RelativeImageReference, file: File) => void;
   onUpdateAlt: (id: string, value: string) => void;
   onSaveAlt: (id: string) => void;
   onInsert: (asset: ImageAsset) => void;
@@ -17,6 +21,8 @@ type ImageAssetPanelProps = {
 };
 
 export function ImageAssetPanel(props: ImageAssetPanelProps) {
+  const associateInputRef = useRef<HTMLInputElement>(null);
+  const referenceRef = useRef<{ articleId: string; reference: RelativeImageReference } | null>(null);
   return (
     <section className="imageManager" aria-label="图片素材">
       <div className="imageManagerHead">
@@ -28,6 +34,43 @@ export function ImageAssetPanel(props: ImageAssetPanelProps) {
           {props.processing ? "正在处理…" : "+ 添加图片"}
         </button>
       </div>
+      {!!props.relativeImages.length && (
+        <div className="relativeImageNotice">
+          <p>有 {props.relativeImages.length} 个相对图片路径待关联。请为每个路径选择原图。</p>
+          <ul>
+            {props.relativeImages.map((reference) => (
+              <li key={reference.path}>
+                <code>{reference.path}</code>
+                <button
+                  type="button"
+                  disabled={props.processing || !props.activeId}
+                  aria-label={`关联图片：${reference.path}`}
+                  onClick={() => {
+                    referenceRef.current = { articleId: props.activeId, reference };
+                    associateInputRef.current?.click();
+                  }}
+                >
+                  选择文件
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <input
+        ref={associateInputRef}
+        aria-label="选择要关联的图片"
+        className="visuallyHidden"
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          const target = referenceRef.current;
+          referenceRef.current = null;
+          if (file && target?.articleId === props.activeId) props.onAssociate(target.reference, file);
+        }}
+      />
       {props.assets.length ? (
         <div className="imageAssetList">
           {props.assets.map((asset) => (

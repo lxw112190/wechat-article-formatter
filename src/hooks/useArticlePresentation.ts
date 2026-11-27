@@ -4,6 +4,7 @@ import type { ImageAsset } from "../imageAssets";
 import { getLocalAssetReferences } from "../markdown/assets";
 import { getMarkdownOutline } from "../markdown/outline";
 import { inspectBeforePublish } from "../markdown/preflight";
+import { getRelativeImageReferences } from "../markdown/relativeImages";
 import {
   buildCopyHtml,
   buildCopyPlainText,
@@ -38,11 +39,21 @@ export function useArticlePresentation(options: UseArticlePresentationOptions) {
   const bodyHtml = useMemo(() => renderMarkdown(options.markdown, theme, options.assetUrls), [options.markdown, theme, options.assetUrls]);
   const copyHtml = useMemo(() => buildCopyHtml(bodyHtml, theme), [bodyHtml, theme]);
   const plainText = useMemo(() => stripMarkdown(options.markdown), [options.markdown]);
-  const copyPlainText = useMemo(() => buildCopyPlainText(options.markdown), [options.markdown]);
+  const copyPlainText = useMemo(() => buildCopyPlainText(bodyHtml, theme), [bodyHtml, theme]);
   const localAssets = useMemo(() => getLocalAssetReferences(options.markdown), [options.markdown]);
+  const relativeImages = useMemo(() => getRelativeImageReferences(options.markdown), [options.markdown]);
   const preflightIssues = useMemo(
-    () => inspectBeforePublish(options.title, options.markdown, plainText, outline, options.imageAssets, options.assetLibraryReady),
-    [options.title, options.markdown, plainText, outline, options.imageAssets, options.assetLibraryReady],
+    () =>
+      inspectBeforePublish(
+        options.title,
+        options.markdown,
+        plainText,
+        outline,
+        options.imageAssets,
+        options.assetLibraryReady,
+        relativeImages,
+      ),
+    [options.title, options.markdown, plainText, outline, options.imageAssets, options.assetLibraryReady, relativeImages],
   );
   const characterCount = plainText.replace(/\s/g, "").length;
   const imageCount = (options.markdown.match(/!\[[^\]]*\]\([^)]*\)/g) ?? []).length;
@@ -112,6 +123,7 @@ export function useArticlePresentation(options: UseArticlePresentationOptions) {
     copyHtml,
     copyPlainText,
     localAssets,
+    relativeImages,
     preflightIssues,
     preflightErrors: preflightIssues.filter((issue) => issue.status === "error"),
     characterCount,

@@ -123,6 +123,7 @@ export function AppView(props: AppViewProps) {
           pasteMessage={clipboard.pasteMessage}
           imageMessage={images.imageMessage}
           imageAssets={images.imageAssets}
+          relativeImages={presentation.relativeImages}
           assetUrls={images.assetUrls}
           imageProcessing={images.imageProcessing}
           onToggleOutline={() => scroll.setOutlineOpen((open) => !open)}
@@ -134,6 +135,7 @@ export function AppView(props: AppViewProps) {
           onDrop={images.handleEditorDrop}
           onEditorScroll={(source) => scroll.syncScrollPosition(source, scroll.previewRef.current)}
           onImageInput={images.handleImageInput}
+          onAssociateImage={(reference, file) => void images.associateImageFile(reference, file)}
           onReplaceImageInput={images.handleReplaceImage}
           onUpdateImageAlt={images.updateImageAlt}
           onSaveImageAlt={(id) => void images.saveImageAlt(id)}

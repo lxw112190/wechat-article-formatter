@@ -170,6 +170,46 @@ test("copy HTML uses an image ID placeholder instead of Base64", async ({ page, 
   expect(clipboardHtml).not.toContain("data:image");
 });
 
+test("imported relative images can be linked and copied as asset IDs", async ({ page, context }) => {
+  page.on("dialog", (dialog) => dialog.accept());
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.locator('input[type="file"][accept^=".md,"]').setInputFiles({
+    name: "相对路径.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(
+      "# 图片关联测试\n\n![说明](images/cover.gif)\n\n[资料](https://example.com/demo)\n\n~~~text\n  缩进\n\n    下一行\n~~~",
+    ),
+  });
+  const associate = page.getByRole("button", { name: "关联图片：images/cover.gif" });
+  await expect(associate).toBeVisible();
+  await expect(page.locator(".articleBody")).toContainText("待关联图片：images/cover.gif");
+  await expect(page.locator(".articleBody img")).toHaveCount(0);
+
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), associate.click()]);
+  await chooser.setFiles({
+    name: "cover.gif",
+    mimeType: "image/gif",
+    buffer: Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64"),
+  });
+  await expect(associate).toHaveCount(0);
+  await expect(page.getByText("✓ 已保存")).toBeVisible({ timeout: 5000 });
+  const markdown = await page.locator("textarea.markdownInput").inputValue();
+  const imageId = markdown.match(/asset:\/\/(IMG-[\w-]+)/)?.[1];
+  expect(imageId).toBeTruthy();
+  await page.reload();
+  await expect(page.locator(".articleBody img[src^='blob:']")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "复制正文", exact: true }).first().click();
+  await expect(page.getByRole("button", { name: "已复制正文", exact: true }).first()).toBeVisible();
+  const clipboard = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read();
+    return { html: await (await item.getType("text/html")).text(), text: await (await item.getType("text/plain")).text() };
+  });
+  expect(clipboard.html).toContain(`请上传图片：${imageId}`);
+  expect(clipboard.html).not.toMatch(/data:image|blob:|images\/cover\.gif/);
+  expect(clipboard.text.replace(/\r\n/g, "\n")).toContain("资料\nhttps://example.com/demo\n\n  缩进\n\n    下一行");
+});
+
 test("draft search, pin and duplicate keep the library manageable", async ({ page }) => {
   await page.getByTitle("新建文章").click();
   await page.getByLabel("标题").fill("可搜索的产品文章");

@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, Dispatch, DragEvent as ReactDragEvent, RefObject, SetStateAction } from "react";
 import { escapeRegExp, formatBytes } from "../app/formatters";
 import { compressImageFile, deleteImageAsset, describeStorageError, getArticleImageAssets, putImageAsset } from "../imageAssets";
 import type { ImageAsset } from "../imageAssets";
+import { assetAltPattern, formatAssetImage } from "../markdown/assets";
+import { associateRelativeImage } from "../markdown/relativeImages";
+import type { RelativeImageReference } from "../markdown/relativeImages";
 
 type UseImageAssetsOptions = {
   activeId: string;
+  markdown: string;
   setMarkdown: Dispatch<SetStateAction<string>>;
   insertBlock: (content: string) => void;
   replaceImageInputRef: RefObject<HTMLInputElement | null>;
@@ -15,6 +19,7 @@ type UseImageAssetsOptions = {
 
 export function useImageAssets({
   activeId,
+  markdown,
   setMarkdown,
   insertBlock,
   replaceImageInputRef,
@@ -30,6 +35,10 @@ export function useImageAssets({
   const [assetRefreshKey, setAssetRefreshKey] = useState(0);
   const [imageProcessing, setImageProcessing] = useState(false);
   const [replaceAssetId, setReplaceAssetId] = useState<string | null>(null);
+  const activeDraftRef = useRef({ id: activeId, markdown });
+  useLayoutEffect(() => {
+    activeDraftRef.current = { id: activeId, markdown };
+  }, [activeId, markdown]);
 
   useEffect(
     () => () => {
@@ -111,7 +120,7 @@ export function useImageAssets({
         setAssetPreview(asset);
       }
       setImageAssets((items) => [...items, ...added]);
-      insertBlock(added.map((asset) => `![${asset.alt}](asset://${asset.id})`).join("\n\n"));
+      insertBlock(added.map((asset) => formatAssetImage(asset.alt, asset.id)).join("\n\n"));
       const originalSize = added.reduce((total, asset) => total + asset.originalSize, 0);
       const compressedSize = added.reduce((total, asset) => total + asset.compressedSize, 0);
       showMessage(`已添加 ${added.length} 张图片：${formatBytes(originalSize)} → ${formatBytes(compressedSize)}`);
@@ -126,6 +135,35 @@ export function useImageAssets({
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     void addImageFiles(files);
+  }
+
+  async function associateImageFile(reference: RelativeImageReference, file: File) {
+    if (!activeId || imageProcessing) return;
+    setImageProcessing(true);
+    try {
+      const alt = reference.alt.replace(/[\r\n]/g, " ").slice(0, 120);
+      const asset = await compressImageFile(file, activeId, file.name, {}, undefined, alt);
+      if (activeDraftRef.current.id !== activeId) return;
+
+      await putImageAsset(asset);
+      const current = activeDraftRef.current;
+      const updated = current.id === activeId ? associateRelativeImage(current.markdown, reference.path, asset.id) : current.markdown;
+      if (updated === current.markdown) {
+        await deleteImageAsset(asset.id);
+        showMessage("当前草稿已切换，或图片引用已被修改，请重新关联。");
+        return;
+      }
+      setMarkdown((content) => {
+        if (activeDraftRef.current.id !== activeId) return content;
+        return content === current.markdown ? updated : associateRelativeImage(content, reference.path, asset.id);
+      });
+      setAssetRefreshKey((key) => key + 1);
+      showMessage(`已关联图片 ${asset.id}`);
+    } catch (error) {
+      reportError(error, "关联图片");
+    } finally {
+      setImageProcessing(false);
+    }
   }
 
   function handleEditorDrop(event: ReactDragEvent<HTMLTextAreaElement>) {
@@ -190,10 +228,10 @@ export function useImageAssets({
   }
 
   function updateImageAlt(id: string, value: string) {
-    const alt = value.replace(/[\]\r\n]/g, " ").slice(0, 120);
+    const alt = value.replace(/[\r\n]/g, " ").slice(0, 120);
     setImageAssets((items) => items.map((asset) => (asset.id === id ? { ...asset, alt } : asset)));
-    const pattern = new RegExp(`!\\[[^\\]]*\\]\\(asset:\\/\\/${escapeRegExp(id)}\\)`, "g");
-    setMarkdown((content) => content.replace(pattern, () => `![${alt}](asset://${id})`));
+    const pattern = new RegExp(String.raw`!\[${assetAltPattern}\]\(asset://${escapeRegExp(id)}\)`, "g");
+    setMarkdown((content) => content.replace(pattern, () => formatAssetImage(alt, id)));
   }
 
   async function saveImageAlt(id: string) {
@@ -208,7 +246,7 @@ export function useImageAssets({
   }
 
   function insertExistingImage(asset: ImageAsset) {
-    insertBlock(`![${asset.alt}](asset://${asset.id})`);
+    insertBlock(formatAssetImage(asset.alt, asset.id));
     showMessage(`已插入 ${asset.id}`, 1600);
   }
 
@@ -223,7 +261,7 @@ export function useImageAssets({
       assetUrlsRef.current = nextUrls;
       setAssetUrls(nextUrls);
       setImageAssets((items) => items.filter((item) => item.id !== asset.id));
-      const pattern = new RegExp(`\\n{0,2}!\\[[^\\]]*\\]\\(asset:\\/\\/${escapeRegExp(asset.id)}\\)\\n{0,2}`, "g");
+      const pattern = new RegExp(String.raw`\n{0,2}!\[${assetAltPattern}\]\(asset://${escapeRegExp(asset.id)}\)\n{0,2}`, "g");
       setMarkdown((content) => content.replace(pattern, "\n\n").replace(/\n{3,}/g, "\n\n"));
       showMessage("图片已删除", 1600);
     } catch (error) {
@@ -255,6 +293,7 @@ export function useImageAssets({
     imageProcessing,
     imageMessage,
     addImageFiles,
+    associateImageFile,
     handleImageInput,
     handleEditorDrop,
     handleReplaceImage,

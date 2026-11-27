@@ -3,6 +3,7 @@ import type { OutlineItem, PreflightIssue } from "../types";
 import { getLocalAssetReferences } from "./assets";
 import { summarizeMarkdownLinks } from "./links";
 import { normalizeCodeLanguage } from "./codeLanguages";
+import { getRelativeImageReferences } from "./relativeImages";
 
 export function inspectBeforePublish(
   title: string,
@@ -11,6 +12,7 @@ export function inspectBeforePublish(
   outline: OutlineItem[],
   assets: ImageAsset[],
   assetLibraryReady: boolean,
+  relativeImages = getRelativeImageReferences(markdown),
 ) {
   const issues: PreflightIssue[] = [];
   const trimmedTitle = title.trim();
@@ -54,7 +56,14 @@ export function inspectBeforePublish(
   const localReferences = getLocalAssetReferences(markdown);
   const assetIds = new Set(assets.map((asset) => asset.id));
   const missingAssets = localReferences.filter((reference) => !assetIds.has(reference.id));
-  if (!assetLibraryReady && localReferences.length)
+  if (relativeImages.length)
+    issues.push({
+      id: "images",
+      label: "本地图片",
+      detail: `${relativeImages.length} 个相对图片路径尚未关联，请在「图片素材」中选择对应文件。${missingAssets.length && assetLibraryReady ? `另有 ${missingAssets.length} 个图片 ID 缺少本机素材。` : ""}`,
+      status: "error",
+    });
+  else if (!assetLibraryReady && localReferences.length)
     issues.push({ id: "images", label: "本地图片", detail: "正在读取图片素材库…", status: "warning" });
   else if (missingAssets.length)
     issues.push({
